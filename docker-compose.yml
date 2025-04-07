@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: bitnami/mysql:latest
+    environment:
+      - MYSQL_ROOT_PASSWORD=secret
+      - MYSQL_DATABASE=mydatabase
+      - MYSQL_USER=myuser
+      - MYSQL_PASSWORD=mypassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/bitnami/mysql
+
+  laravel:
+    image: bitnami/laravel:latest
+    depends_on:
+      - mysql
+    environment:
+      - DB_HOST=mysql
+      - DB_DATABASE=mydatabase
+      - DB_USERNAME=myuser
+      - DB_PASSWORD=mypassword
+      - ALLOW_EMPTY_PASSWORD=yes
+    ports:
+      - "8080:80"
+
+  electron_react:
+    build: .
+    image: myelectron-reactimage
+    depends_on:
+      - laravel
+    ports:
+      - "3000:3000"
+
+volumes:
+  mysql_data:
