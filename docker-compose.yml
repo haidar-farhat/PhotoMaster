@@ -9,7 +9,7 @@ services:
       - MYSQL_USER=myuser
       - MYSQL_PASSWORD=mypassword
     ports:
-      - "3306:3306"
+      - "3307:3306"  # Changed from "3306:3306"
     volumes:
       - mysql_data:/bitnami/mysql
 
@@ -23,16 +23,25 @@ services:
       - DB_USERNAME=myuser
       - DB_PASSWORD=mypassword
       - ALLOW_EMPTY_PASSWORD=yes
+      - APP_ENV=local
+      - APP_DEBUG=true
     ports:
       - "8080:80"
+    volumes:
+      - ./laravel:/app
 
   electron_react:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
     image: myelectron-reactimage
     depends_on:
       - laravel
     ports:
       - "3000:3000"
+    volumes:
+      - ./electron-react:/app
+      - /app/node_modules
 
 volumes:
   mysql_data:
