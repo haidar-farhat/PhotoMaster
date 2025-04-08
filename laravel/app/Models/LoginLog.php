@@ -6,12 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class LoginLog extends Model
 {
-    public $timestamps = false;
-
     protected $fillable = [
         'user_id',
         'ip_address',
-        'location',
+        'location'
     ];
 
     public function user()

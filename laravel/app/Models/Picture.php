@@ -10,7 +10,7 @@ class Picture extends Model
         'user_id',
         'filename',
         'local_path',
-        'url',
+        'url'
     ];
 
     public function user()

@@ -1,15 +1,19 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Auth;
 
-use App\Services\AuthService;
+use App\Http\Controllers\Controller;
+use App\Services\UserService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class AuthController extends Controller
 {
-    public function __construct(private AuthService $authService)
+    protected $userService;
+
+    public function __construct(UserService $userService)
     {
+        $this->userService = $userService;
     }
 
     public function register(Request $request)
@@ -17,14 +21,14 @@ class AuthController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8',
+            'password' => 'required|string|min:8'
         ]);
 
         if ($validator->fails()) {
             return response()->json($validator->errors(), 422);
         }
 
-        $user = $this->authService->register($request->all());
+        $user = $this->userService->register($request->all());
 
         return response()->json([
             'message' => 'User registered successfully',
@@ -36,25 +40,30 @@ class AuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'email' => 'required|email',
-            'password' => 'required',
+            'password' => 'required'
         ]);
 
         if ($validator->fails()) {
             return response()->json($validator->errors(), 422);
         }
 
-        $result = $this->authService->login($request->all());
+        $token = $this->userService->login($request->only('email', 'password'));
+
+        if (!$token) {
+            return response()->json([
+                'message' => 'Invalid credentials'
+            ], 401);
+        }
 
         return response()->json([
-            'message' => 'Logged in successfully',
-            'user' => $result['user'],
-            'token' => $result['token']
+            'access_token' => $token,
+            'token_type' => 'Bearer'
         ]);
     }
 
     public function logout(Request $request)
     {
-        $this->authService->logout($request->user());
+        $request->user()->currentAccessToken()->delete();
         return response()->json(['message' => 'Logged out successfully']);
     }
 }
