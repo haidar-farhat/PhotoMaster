@@ -8,7 +8,7 @@ use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, Notifiable;
+    use HasApiTokens, \Illuminate\Database\Eloquent\Factories\HasFactory, Notifiable;
 
     protected $fillable = [
         'name',

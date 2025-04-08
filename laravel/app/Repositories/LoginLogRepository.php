@@ -2,21 +2,21 @@
 
 namespace App\Repositories;
 
-use App\Models\User;
+use App\Models\LoginLog;
 use App\Repositories\BaseRepository;
 
-class UserRepository implements BaseRepository
+class LoginLogRepository implements BaseRepository
 {
     protected $model;
 
-    public function __construct(User $model)
+    public function __construct(LoginLog $model)
     {
         $this->model = $model;
     }
 
     public function all()
     {
-        return $this->model->all();
+        return $this->model->with('user:id,name')->get();
     }
 
     public function find($id)
@@ -31,19 +31,14 @@ class UserRepository implements BaseRepository
 
     public function update($id, array $data)
     {
-        $user = $this->find($id);
-        $user->update($data);
-        return $user;
+        $log = $this->find($id);
+        $log->update($data);
+        return $log;
     }
 
     public function delete($id)
     {
-        $user = $this->find($id);
-        return $user->delete();
-    }
-
-    public function findByEmail($email)
-    {
-        return $this->model->where('email', $email)->first();
+        $log = $this->find($id);
+        return $log->delete();
     }
 }

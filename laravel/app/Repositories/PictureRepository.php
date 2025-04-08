@@ -2,21 +2,21 @@
 
 namespace App\Repositories;
 
-use App\Models\User;
+use App\Models\Picture;
 use App\Repositories\BaseRepository;
 
-class UserRepository implements BaseRepository
+class PictureRepository implements BaseRepository
 {
     protected $model;
 
-    public function __construct(User $model)
+    public function __construct(Picture $model)
     {
         $this->model = $model;
     }
 
     public function all()
     {
-        return $this->model->all();
+        return $this->model->with('user')->get();
     }
 
     public function find($id)
@@ -31,19 +31,19 @@ class UserRepository implements BaseRepository
 
     public function update($id, array $data)
     {
-        $user = $this->find($id);
-        $user->update($data);
-        return $user;
+        $picture = $this->find($id);
+        $picture->update($data);
+        return $picture;
     }
 
     public function delete($id)
     {
-        $user = $this->find($id);
-        return $user->delete();
+        $picture = $this->find($id);
+        return $picture->delete();
     }
 
-    public function findByEmail($email)
+    public function getByUserId($userId)
     {
-        return $this->model->where('email', $email)->first();
+        return $this->model->where('user_id', $userId)->get();
     }
 }
