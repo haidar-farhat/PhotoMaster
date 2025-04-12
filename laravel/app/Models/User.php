@@ -20,4 +20,15 @@ class User extends Authenticatable
         'password',
         'remember_token',
     ];
+
+    public function pictures()
+    {
+        return $this->hasMany(\App\Models\Picture::class);
+    }
+
+    // Add login logs relationship
+    public function loginLogs()
+    {
+        return $this->hasMany(\App\Models\LoginLog::class);
+    }
 }
