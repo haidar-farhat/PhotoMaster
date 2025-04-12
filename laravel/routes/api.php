@@ -14,8 +14,14 @@ Route::get('/test', function () {
 });
 
 // Auth routes
+// Change this line
+// Update the AuthController route registration
+// AuthController is already imported at the top of the file
+
+// Add these routes with proper namespace
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
+Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
 
 // Protected routes
 // Update the pictures routes in the auth:sanctum middleware group

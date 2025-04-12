@@ -48,12 +48,8 @@ class PictureTest extends ApiTestCase
             ])
             ->assertJson(['user_id' => $user->id]);  // Add specific assertion
 
-        // Verify file was stored in correct path
-        // Fix storage path assertion
-        // Change assertion method
-        $this->assertFileExists(
-            storage_path('app/public/images/'.$user->id.'/test-image.png')
-        );
+        // Verify file was stored in correct path using Storage facade
+$this->assertTrue(Storage::disk('public')->exists('images/'.$user->id.'/test-image.png'));
     }
 
     public function test_get_user_photos()
@@ -91,9 +87,9 @@ class PictureTest extends ApiTestCase
                 'id', 'user_id', 'filename', 'path', 'url'
             ]);
 
-        // Verify the file exists
+        // Verify the file exists using Storage facade
         $path = 'images/' . $user->id . '/test-image.png';
-        $this->assertFileExists(storage_path('app/public/' . $path));
+$this->assertTrue(Storage::disk('public')->exists($path));
     }
 
     public function test_delete_picture()
@@ -125,6 +121,6 @@ class PictureTest extends ApiTestCase
 
         // Verify the file was deleted
         $path = 'images/' . $user->id . '/delete-test.png';
-$this->assertFalse(Storage::disk('public')->exists($path));
+        $this->assertFalse(Storage::disk('public')->exists($path));
     }
 }

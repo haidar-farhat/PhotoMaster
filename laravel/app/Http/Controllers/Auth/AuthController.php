@@ -9,7 +9,7 @@ use App\Services\UserService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
-use Laravel\Sanctum\PersonalAccessToken;
+use Laravel\Sanctum\HasApiTokens;
 
 class AuthController extends Controller
 {
@@ -20,7 +20,25 @@ class AuthController extends Controller
         $this->userService = $userService;
     }
 
-    // ... existing register method ...
+    public function register(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users',
+            'password' => 'required|string|min:8'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $user = $this->userService->register($request->all());
+
+        return response()->json([
+            'message' => 'User registered successfully',
+            'user' => $user
+        ], 201);
+    }
 
     public function login(Request $request)
     {
@@ -33,6 +51,7 @@ class AuthController extends Controller
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
+        // Get user directly from database instead of Auth facade
         $user = User::where('email', $request->email)->first();
         $token = $user->createToken('auth-token')->plainTextToken;
 

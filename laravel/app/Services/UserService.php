@@ -2,59 +2,46 @@
 
 namespace App\Services;
 
-use App\Repositories\UserRepository;
-use App\Services\BaseService;
-use Illuminate\Support\Facades\Hash;
 use App\Models\User;
+use Illuminate\Support\Facades\Hash;
 
-class UserService implements BaseService
+class UserService
 {
-    protected $userRepository;
-
-    public function __construct(UserRepository $userRepository)
-    {
-        $this->userRepository = $userRepository;
-    }
-
     public function getAll()
     {
-        return $this->userRepository->all();
+        return User::all();
     }
 
     public function getById($id)
     {
-        return $this->userRepository->find($id);
+        return User::findOrFail($id);
     }
 
-    public function create(array $data)
+    public function register(array $data): User
     {
-        return $this->userRepository->create($data);
+        return User::create([
+            'name' => $data['name'],
+            'email' => $data['email'],
+            'password' => Hash::make($data['password'])
+        ]);
     }
 
     public function update($id, array $data)
     {
-        return $this->userRepository->update($id, $data);
+        $user = User::findOrFail($id);
+
+        // Only hash password if it's provided
+        if (isset($data['password'])) {
+            $data['password'] = Hash::make($data['password']);
+        }
+
+        $user->update($data);
+        return $user;
     }
 
     public function delete($id)
     {
-        return $this->userRepository->delete($id);
-    }
-
-    public function register(array $data)
-    {
-        $data['password'] = Hash::make($data['password']);
-        return $this->userRepository->create($data);
-    }
-
-    public function login(array $credentials)
-    {
-        $user = $this->userRepository->findByEmail($credentials['email']);
-
-        if (!$user || !Hash::check($credentials['password'], $user->password)) {
-            return null;
-        }
-
-        return $user->createToken('auth_token')->plainTextToken;
+        $user = User::findOrFail($id);
+        return $user->delete();
     }
 }
