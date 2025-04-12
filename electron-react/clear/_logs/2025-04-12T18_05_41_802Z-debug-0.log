@@ -1,0 +1,13 @@
+0 verbose cli C:\Program Files\nodejs\node.exe C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js
+1 info using npm@10.9.2
+2 info using node@v22.14.0
+3 silly config load:file:C:\Program Files\nodejs\node_modules\npm\npmrc
+4 silly config load:file:C:\xampp_2\htdocs\electro\PhotoMaster\electron-react\.npmrc
+5 silly config load:file:C:\Users\Haydar\.npmrc
+6 silly config load:file:C:\Users\Haydar\AppData\Roaming\npm\etc\npmrc
+7 verbose title npm exec
+8 verbose argv "exec" "--cache" "clear"
+9 verbose logfile logs-max:10 dir:C:\xampp_2\htdocs\electro\PhotoMaster\electron-react\clear\_logs\2025-04-12T18_05_41_802Z-
+10 verbose logfile C:\xampp_2\htdocs\electro\PhotoMaster\electron-react\clear\_logs\2025-04-12T18_05_41_802Z-debug-0.log
+11 silly logfile done cleaning log files
+12 http fetch GET 200 https://registry.npmjs.org/npm 2495ms
