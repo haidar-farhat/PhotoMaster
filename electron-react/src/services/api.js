@@ -64,14 +64,20 @@ export const getUserPhotos = async (userId) => {
 
 export const uploadPhoto = async (userId, filename, base64Image) => {
   try {
+    // Make sure we're only sending the base64 data without the prefix
+    const cleanBase64 = base64Image.includes('base64,') 
+      ? base64Image.split('base64,')[1] 
+      : base64Image;
+      
     const response = await api.post('/pictures', {
       user_id: userId,
       filename,
-      base64_image: base64Image
+      base64_image: cleanBase64
     });
     return response.data;
   } catch (error) {
-    throw error.response.data;
+    console.error('Upload error details:', error.response?.data || error.message);
+    throw error.response?.data || error;
   }
 };
 

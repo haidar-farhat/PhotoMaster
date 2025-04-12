@@ -31,6 +31,10 @@ function Dashboard({ user }) {
 
   const handleUpload = async (filename, base64Image) => {
     try {
+      // Add some logging to debug
+      console.log('Uploading image:', filename);
+      console.log('Base64 length:', base64Image.length);
+      
       const newPhoto = await uploadPhoto(user.id, filename, base64Image);
       setPhotos([...photos, newPhoto]);
       return true;

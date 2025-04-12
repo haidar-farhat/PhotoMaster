@@ -19,16 +19,22 @@ function UploadDialog({ open, onClose, onUpload }) {
 
     setFile(selectedFile);
 
-    // Create preview
+    // Create preview and prepare base64 data
     const reader = new FileReader();
     reader.onload = () => {
-      setPreview(reader.result);
+      // The full base64 string with data URI prefix
+      const fullBase64 = reader.result;
+      // Extract only the base64 data part (remove the data:image/jpeg;base64, prefix)
+      const base64Data = fullBase64.split(',')[1];
+      setPreview(fullBase64);
+      // Store the clean base64 data
+      setBase64Image(base64Data);
     };
     reader.readAsDataURL(selectedFile);
   };
 
   const handleSubmit = async () => {
-    if (!filename || !file) {
+    if (!filename || !file || !base64Image) {
       setError('Please provide a filename and select an image');
       return;
     }
@@ -37,7 +43,8 @@ function UploadDialog({ open, onClose, onUpload }) {
     setError('');
 
     try {
-      const success = await onUpload(filename, preview);
+      // Pass the clean base64 data to the upload function
+      const success = await onUpload(filename, base64Image);
       if (success) {
         handleClose();
       } else {
@@ -45,15 +52,21 @@ function UploadDialog({ open, onClose, onUpload }) {
       }
     } catch (err) {
       setError('An error occurred during upload');
+      console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
+  // At the top of your component, add this state:
+  const [base64Image, setBase64Image] = useState('');
+  
+  // And in the handleClose function, clear it:
   const handleClose = () => {
     setFilename('');
     setFile(null);
     setPreview('');
+    setBase64Image('');
     setError('');
     onClose();
   };

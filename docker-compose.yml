@@ -1,50 +1,79 @@
 version: '3'
 
 services:
-  photomaster:
+  # Laravel Backend
+  laravel:
     build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: photomaster_app
+      context: ./laravel
     ports:
-      - "80:80"
-      - "3000:3000"
+      - "8000:8000"
+    volumes:
+      - ./laravel:/var/www/html
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
+    environment:
+      - APP_ENV=local
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_DATABASE=photomaster
+      - DB_USERNAME=root
+      - DB_PASSWORD=secret
     networks:
-      - photomaster_network
+      - photomaster-network
+    command: bash -c "php artisan config:clear && php artisan migrate --force && php artisan serve --host=0.0.0.0"
 
+  # MySQL Database
   mysql:
     image: mysql:8.0
-    container_name: photomaster_mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: photomaster
-      MYSQL_USER: photomaster
-      MYSQL_PASSWORD: photomaster
     ports:
-      - "3307:3306"  # Changed port to avoid XAMPP conflict
+      - "33060:3306"  # Changed port to avoid conflict with XAMPP
+    environment:
+      - MYSQL_DATABASE=photomaster
+      - MYSQL_ROOT_PASSWORD=secret
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
-      - photomaster_network
+      - photomaster-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-psecret"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
+  # phpMyAdmin
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
-    container_name: photomaster_phpmyadmin
-    environment:
-      PMA_HOST: mysql
-      PMA_PORT: 3306
-      MYSQL_ROOT_PASSWORD: root
     ports:
-      - "8081:80"
+      - "8080:80"
+    environment:
+      - PMA_HOST=mysql
+      - PMA_PORT=3306
+      - MYSQL_ROOT_PASSWORD=secret
     depends_on:
       - mysql
     networks:
-      - photomaster_network
+      - photomaster-network
+
+  # React Frontend
+  react:
+    build:
+      context: ./electron-react
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./electron-react:/app
+      - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    depends_on:
+      - laravel
+    networks:
+      - photomaster-network
 
 networks:
-  photomaster_network:
+  photomaster-network:
     driver: bridge
 
 volumes:

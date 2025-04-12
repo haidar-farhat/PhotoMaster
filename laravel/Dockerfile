@@ -1,5 +1,6 @@
-FROM php:8.0-apache
+FROM php:8.1-fpm
 
+# Install dependencies
 RUN apt-get update && apt-get install -y \
     git \
     curl \
@@ -7,25 +8,23 @@ RUN apt-get update && apt-get install -y \
     libonig-dev \
     libxml2-dev \
     zip \
-    unzip \
-    default-mysql-client
+    unzip
 
-# Install PHP extensions including pdo_mysql
-RUN docker-php-ext-install pdo pdo_mysql mbstring exif pcntl bcmath gd
+# Clear cache
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Configure Apache
-RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
-RUN a2enmod rewrite
+# Install PHP extensions
+RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
 
-# Install Composer
-COPY --from=composer:2.2 /usr/bin/composer /usr/bin/composer
+# Get latest Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
-# Create Laravel project and set permissions
-RUN composer create-project --prefer-dist laravel/laravel:^8.0 . && \
-    chown -R www-data:www-data /var/www/html && \
-    chmod -R 755 /var/www/html/storage /var/www/html/bootstrap/cache
+COPY . .
 
-# Configure Apache DocumentRoot
-RUN sed -i 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/000-default.conf
+RUN composer install
+
+EXPOSE 8000
+
+CMD ["php", "artisan", "serve", "--host=0.0.0.0"]
