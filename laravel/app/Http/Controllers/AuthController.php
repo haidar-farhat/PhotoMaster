@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\LoginLog;
 use App\Services\UserService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 
 class AuthController extends Controller
@@ -36,29 +38,39 @@ class AuthController extends Controller
         ], 201);
     }
 
+    // Add to login method
     public function login(Request $request)
     {
-        $validator = Validator::make($request->all(), [
+        $credentials = $request->validate([
             'email' => 'required|email',
-            'password' => 'required'
+            'password' => 'required',
         ]);
 
-        if ($validator->fails()) {
-            return response()->json($validator->errors(), 422);
-        }
+        if (Auth::attempt($credentials)) {
+            $user = Auth::user();
+            // Make sure User model uses HasApiTokens trait
+            if (method_exists($user, 'createToken')) {
+                $token = $user->createToken('auth_token')->plainTextToken;
+            } else {
+                throw new \Exception('User model must use HasApiTokens trait for token creation');
+            }
 
-        $token = $this->userService->login($request->only('email', 'password'));
+            // Create login log
+            LoginLog::create([
+                'user_id' => $user->id,
+                'ip_address' => $request->ip(),
+                'login_at' => now()
+            ]);
 
-        if (!$token) {
             return response()->json([
-                'message' => 'Invalid credentials'
-            ], 401);
+                'user' => $user,
+                'token' => $token
+            ]);
         }
 
         return response()->json([
-            'access_token' => $token,
-            'token_type' => 'Bearer'
-        ]);
+            'message' => 'Invalid credentials'
+        ], 401);
     }
 
     public function logout(Request $request)

@@ -7,16 +7,6 @@ use Illuminate\Contracts\Validation\Rule;
 class Base64Image implements Rule
 {
     /**
-     * Create a new rule instance.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        //
-    }
-
-    /**
      * Determine if the validation rule passes.
      *
      * @param  string  $attribute
@@ -25,11 +15,34 @@ class Base64Image implements Rule
      */
     public function passes($attribute, $value)
     {
-        return preg_match('/^data:image\/(png|jpeg|jpg|gif);base64,/', $value);
+        if (!is_string($value) || !preg_match('/^data:image\/(\w+);base64,/', $value, $matches)) {
+            return false;
+        }
+
+        // Check if the image type is valid
+        $imageType = $matches[1];
+        if (!in_array($imageType, ['jpeg', 'jpg', 'png', 'gif'])) {
+            return false;
+        }
+
+        // Decode the base64 data
+        $data = substr($value, strpos($value, ',') + 1);
+        $decoded = base64_decode($data, true);
+
+        if ($decoded === false) {
+            return false;
+        }
+
+        return true;
     }
 
+    /**
+     * Get the validation error message.
+     *
+     * @return string
+     */
     public function message()
     {
-        return 'The :attribute must be a valid base64 encoded image (PNG, JPEG, JPG, GIF)';
+        return 'The :attribute must be a valid base64 encoded image.';
     }
 }

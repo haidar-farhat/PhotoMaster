@@ -1,64 +1,51 @@
-version: '3.8'
+version: '3'
 
 services:
-  mysql:
-    image: bitnami/mysql:latest
-    environment:
-      - MYSQL_ROOT_PASSWORD=secret
-      - MYSQL_DATABASE=mydatabase
-      - MYSQL_USER=myuser
-      - MYSQL_PASSWORD=mypassword
-    ports:
-      - "3307:3306"
-    volumes:
-      - mysql_data:/bitnami/mysql
-
-  laravel:
-    image: php:8.0-apache
-    depends_on:
-      - mysql
-    environment:
-      - DB_HOST=mysql
-      - DB_DATABASE=mydatabase
-      - DB_USERNAME=myuser
-      - DB_PASSWORD=mypassword
-      - APP_ENV=local
-      - DB_CONNECTION=mysql
-      - DB_PORT=3306
-      - APP_DEBUG=true
-      - APP_URL=http://localhost:8080
-    ports:
-      - "8080:80"
-    volumes:
-      - ./laravel:/var/www/html
-      - ./laravel/apache.conf:/etc/apache2/sites-available/000-default.conf
-    command: >
-      bash -c "apt-get update && 
-               apt-get install -y git curl libpng-dev libonig-dev libxml2-dev zip unzip && 
-               docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd && 
-               a2enmod rewrite && 
-               curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer && 
-               if [ ! -f /var/www/html/artisan ]; then 
-                 composer create-project --prefer-dist laravel/laravel:^8.0 /tmp/laravel && 
-                 cp -r /tmp/laravel/. /var/www/html/ && 
-                 rm -rf /tmp/laravel; 
-               fi && 
-               chown -R www-data:www-data /var/www/html && 
-               chmod -R 755 /var/www/html/storage /var/www/html/bootstrap/cache && 
-               apache2-foreground"
-
-  electron_react:
-    build: 
+  photomaster:
+    build:
       context: .
       dockerfile: Dockerfile
-    image: myelectron-reactimage
-    depends_on:
-      - laravel
+    container_name: photomaster_app
     ports:
+      - "80:80"
       - "3000:3000"
+    depends_on:
+      - mysql
+    networks:
+      - photomaster_network
+
+  mysql:
+    image: mysql:8.0
+    container_name: photomaster_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: photomaster
+      MYSQL_USER: photomaster
+      MYSQL_PASSWORD: photomaster
+    ports:
+      - "3307:3306"  # Changed port to avoid XAMPP conflict
     volumes:
-      - ./electron-react:/app
-      - /app/node_modules
+      - mysql_data:/var/lib/mysql
+    networks:
+      - photomaster_network
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: photomaster_phpmyadmin
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "8081:80"
+    depends_on:
+      - mysql
+    networks:
+      - photomaster_network
+
+networks:
+  photomaster_network:
+    driver: bridge
 
 volumes:
   mysql_data:

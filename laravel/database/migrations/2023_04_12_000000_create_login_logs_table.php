@@ -15,10 +15,10 @@ class CreateLoginLogsTable extends Migration
     {
         Schema::create('login_logs', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->constrained();
-            $table->datetime('login_at');  // Add this column
+            $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->string('ip_address');
             $table->string('location')->nullable();
+            $table->timestamp('login_at');
             $table->timestamps();
         });
     }

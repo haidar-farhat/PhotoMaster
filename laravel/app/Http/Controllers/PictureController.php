@@ -5,7 +5,10 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use App\Models\User;
+use App\Models\Picture;
 use App\Services\PictureService;
+use App\Rules\Base64Image;
+use Illuminate\Support\Facades\Log;
 
 class PictureController extends Controller
 {
@@ -16,7 +19,8 @@ class PictureController extends Controller
         $this->pictureService = $pictureService;
     }
 
-    public function index() {
+    public function index()
+    {
         return $this->pictureService->getAll();
     }
 
@@ -24,29 +28,88 @@ class PictureController extends Controller
     {
         $data = $request->validate([
             'user_id' => 'required|exists:users,id',
-            'base64_image' => ['required', new \App\Rules\Base64Image], // Fixed validation
+            'base64_image' => ['required', new Base64Image],
             'filename' => 'required|string|max:255'
         ]);
 
         try {
+            Log::info('Processing image upload', ['user_id' => $data['user_id'], 'filename' => $data['filename']]);
+
             $imageData = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $data['base64_image']));
             $path = 'images/' . $data['user_id'] . '/' . $data['filename'];
 
-            // Create directory if not exists
-            Storage::makeDirectory('images/' . $data['user_id']);
-
-            Storage::put($path, $imageData);
+            Storage::disk('public')->makeDirectory('images/' . $data['user_id']);
+            Storage::disk('public')->put($path, $imageData);
 
             $picture = $this->pictureService->create([
                 'user_id' => $data['user_id'],
                 'filename' => $data['filename'],
                 'path' => $path,
-                'url' => asset(Storage::url($path))
+                'url' => asset('storage/'.$path)
             ]);
 
             return response()->json($picture, 201);
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Image save failed: ' . $e->getMessage()], 500);
+            Log::error('Image upload failed', [
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]);
+
+            return response()->json([
+                'message' => 'Image upload failed',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function show(Picture $picture)
+    {
+        return response()->json($picture);
+    }
+
+    public function update(Request $request, Picture $picture)
+    {
+        $data = $request->validate([
+            'filename' => 'sometimes|string|max:255',
+        ]);
+
+        $this->pictureService->update($picture->id, $data);
+
+        return response()->json($picture->fresh());
+    }
+
+    public function destroy(Picture $picture)
+    {
+        $result = $this->pictureService->delete($picture->id);
+
+        if ($result) {
+            return response()->json(['message' => 'Picture deleted successfully']);
+        }
+
+        return response()->json(['message' => 'Failed to delete picture'], 500);
+    }
+
+    public function replaceImage(Request $request, Picture $picture)
+    {
+        $data = $request->validate([
+            'base64_image' => ['required', new Base64Image],
+        ]);
+
+        try {
+            $updatedPicture = $this->pictureService->replaceImage($picture, $data['base64_image']);
+
+            return response()->json($updatedPicture);
+        } catch (\Exception $e) {
+            Log::error('Image replacement failed', [
+                'error' => $e->getMessage(),
+                'picture_id' => $picture->id
+            ]);
+
+            return response()->json([
+                'message' => 'Image replacement failed',
+                'error' => $e->getMessage()
+            ], 500);
         }
     }
 

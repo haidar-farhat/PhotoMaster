@@ -3,47 +3,44 @@
 namespace App\Repositories;
 
 use App\Models\Picture;
-use App\Repositories\BaseRepository;
+use Illuminate\Support\Collection;
 
-class PictureRepository implements BaseRepository
+class PictureRepository
 {
     protected $model;
 
-    public function __construct(Picture $model)
+    public function __construct(Picture $picture)
     {
-        $this->model = $model;
+        $this->model = $picture;
     }
 
-    public function all()
+    public function getAll(): Collection
     {
         return $this->model->with('user')->get();
     }
 
-    public function find($id)
+    public function getById(int $id): ?Picture
     {
-        return $this->model->findOrFail($id);
+        return $this->model->find($id);
     }
 
-    public function create(array $data)
+    public function getByUserId(int $userId): Collection
+    {
+        return $this->model->where('user_id', $userId)->get();
+    }
+
+    public function create(array $data): Picture
     {
         return $this->model->create($data);
     }
 
-    public function update($id, array $data)
+    public function update(int $id, array $data): bool
     {
-        $picture = $this->find($id);
-        $picture->update($data);
-        return $picture;
+        return $this->model->where('id', $id)->update($data);
     }
 
-    public function delete($id)
+    public function delete(int $id): bool
     {
-        $picture = $this->find($id);
-        return $picture->delete();
-    }
-
-    public function getByUserId($userId)
-    {
-        return $this->model->where('user_id', $userId)->get();
+        return $this->model->destroy($id);
     }
 }
