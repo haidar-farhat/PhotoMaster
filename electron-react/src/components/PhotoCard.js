@@ -140,17 +140,17 @@ return (
         </CardContent>
         
         <CardActions>
-          {/* Replaced Download button with Edit button */}
-          <IconButton 
-            size="small" 
+          {/* Edit button replacing the Download button */}
+          <IconButton
+            size="small"
             color="primary"
             onClick={() => setOpenEditor(true)} // Opens editor directly
             title="Edit"
           >
             <EditIcon />
           </IconButton>
-          <IconButton 
-            size="small" 
+          <IconButton
+            size="small"
             color="primary"
             onClick={openPreviewDialog}
             title="View"
