@@ -1,57 +1,124 @@
 import React, { useState, useEffect } from 'react';
-import { Grid, Card, CardMedia, CardContent, Typography, CardActions, IconButton, Dialog, DialogContent, DialogActions, Button } from '@mui/material';
+import { Grid, Card, CardMedia, CardContent, Typography, CardActions, IconButton, Dialog, DialogContent, DialogActions, Button, CircularProgress, Box } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import DownloadIcon from '@mui/icons-material/Download';
+import { getPhotoThumbnail, getPhotoImage } from '../services/api'; // Import new functions
+
+const PLACEHOLDER_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
 function PhotoCard({ photo, onDelete, handleDownload }) {
   const [openPreview, setOpenPreview] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [imgSrc, setImgSrc] = useState('');
-  const errorRef = React.useRef(false);
+  const [imgSrc, setImgSrc] = useState(PLACEHOLDER_IMAGE); // Start with placeholder
+  const [loading, setLoading] = useState(true);
+  const [previewImgSrc, setPreviewImgSrc] = useState(PLACEHOLDER_IMAGE); // For full-res preview
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
-  // Set image source when photo changes
+  // Fetch thumbnail when photo changes
   useEffect(() => {
-    // Use the dedicated image endpoint
-    const imageUrl = `http://localhost:8000/api/pictures/${photo.id}/image`;
-    console.log('Using API image endpoint:', imageUrl);
-    setImgSrc(imageUrl);
-    errorRef.current = false;
-  }, [photo]);
+    let isMounted = true;
+    let objectUrl = null;
+
+    const fetchThumbnail = async () => {
+      if (!photo || !photo.id) return;
+
+      setLoading(true);
+      setImgSrc(PLACEHOLDER_IMAGE); // Reset to placeholder while loading
+
+      try {
+        const blob = await getPhotoThumbnail(photo.id);
+        if (isMounted && blob) {
+          objectUrl = URL.createObjectURL(blob);
+          setImgSrc(objectUrl);
+        } else if (isMounted) {
+          console.log('Thumbnail fetch returned null, using placeholder for photo ID:', photo.id);
+          setImgSrc(PLACEHOLDER_IMAGE);
+        }
+      } catch (error) {
+        if (isMounted) {
+          console.error('Error fetching thumbnail for photo ID:', photo.id, error);
+          setImgSrc(PLACEHOLDER_IMAGE);
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchThumbnail();
+
+    // Cleanup function
+    return () => {
+      isMounted = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+        console.log('Revoked Object URL for photo ID:', photo.id);
+      }
+    };
+  }, [photo]); // Depend on the photo object (or photo.id if stable)
 
   const handleDelete = () => {
     onDelete(photo.id);
     setConfirmDelete(false);
   };
+const openPreviewDialog = async () => {
+  setOpenPreview(true);
+  if (previewImgSrc === PLACEHOLDER_IMAGE || previewImgSrc !== imgSrc) { // Only fetch full res if not already loaded or different from thumbnail
+    setLoadingPreview(true);
+    let fullResObjectUrl = null;
+    try {
+      const blob = await getPhotoImage(photo.id);
+      if (blob) {
+        fullResObjectUrl = URL.createObjectURL(blob);
+        setPreviewImgSrc(fullResObjectUrl);
+      } else {
+         // If full image fails, use the thumbnail src
+         setPreviewImgSrc(imgSrc);
+      }
+    } catch (error) {
+      console.error('Error fetching full image for preview:', error);
+      // Fallback to thumbnail src if full image fetch fails
+      setPreviewImgSrc(imgSrc);
+    } finally {
+      setLoadingPreview(false);
+      // Clean up previous preview URL if it exists and is different
+      if (previewImgSrc && previewImgSrc !== PLACEHOLDER_IMAGE && previewImgSrc !== fullResObjectUrl) {
+         URL.revokeObjectURL(previewImgSrc);
+      }
+    }
+  }
+};
 
-  return (
-    <Grid item xs={12} sm={6} md={4} lg={3}>
-      <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-        <CardMedia
-          component="img"
-          height="200"
-          src={imgSrc}
-          alt={photo.filename}
-          onError={(e) => {
-            if (!errorRef.current) {
-              errorRef.current = true;
-              console.error('Image failed to load:', imgSrc);
-              
-              // Try thumbnail as fallback
-              const thumbnailUrl = `http://localhost:8000/api/pictures/${photo.id}/thumbnail`;
-              console.log('Trying thumbnail URL:', thumbnailUrl);
-              setImgSrc(thumbnailUrl);
-              
-              // Set up error handler for the thumbnail fallback
-              e.target.onerror = () => {
-                console.log('Thumbnail also failed, using placeholder');
-                setImgSrc('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
-              };
-            }
-          }}
-          sx={{ objectFit: 'cover', cursor: 'pointer' }}
-          onClick={() => setOpenPreview(true)}
-        />
+const closePreviewDialog = () => {
+  setOpenPreview(false);
+  // Optional: Revoke preview URL immediately on close to save memory,
+  // but this means it refetches every time. Decide based on UX preference.
+  // if (previewImgSrc && previewImgSrc !== PLACEHOLDER_IMAGE) {
+  //   URL.revokeObjectURL(previewImgSrc);
+  //   setPreviewImgSrc(PLACEHOLDER_IMAGE);
+  // }
+};
+
+
+return (
+  <Grid item xs={12} sm={6} md={4} lg={3}>
+    <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f0f0', position: 'relative' }}>
+        {loading ? (
+          <CircularProgress />
+        ) : (
+          <CardMedia
+            component="img"
+            height="200"
+            src={imgSrc}
+            alt={photo.filename}
+            sx={{ objectFit: 'cover', cursor: 'pointer', width: '100%' }}
+            onClick={openPreviewDialog} // Use the new handler
+          />
+        )}
+      </Box>
         
         <CardContent sx={{ flexGrow: 1 }}>
           <Typography variant="body2" noWrap title={photo.filename}>
@@ -73,8 +140,8 @@ function PhotoCard({ photo, onDelete, handleDownload }) {
           </IconButton>
           <IconButton 
             size="small" 
-            color="primary" 
-            onClick={() => setOpenPreview(true)}
+            color="primary"
+            onClick={openPreviewDialog} // Use the new handler
             title="View"
           >
             <ZoomInIcon />
@@ -91,12 +158,16 @@ function PhotoCard({ photo, onDelete, handleDownload }) {
       </Card>
 
       {/* Image Preview Dialog */}
-      <Dialog open={openPreview} onClose={() => setOpenPreview(false)} maxWidth="md">
-        <DialogContent sx={{ p: 0 }}>
-          <img src={imgSrc} alt={photo.filename} style={{ width: '100%', display: 'block' }} />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenPreview(false)}>Close</Button>
+      <Dialog open={openPreview} onClose={closePreviewDialog} maxWidth="lg" fullWidth>
+         <DialogContent sx={{ p: 0, minHeight: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+           {loadingPreview ? (
+             <CircularProgress />
+           ) : (
+             <img src={previewImgSrc} alt={photo.filename} style={{ maxWidth: '100%', maxHeight: '80vh', display: 'block' }} />
+           )}
+         </DialogContent>
+         <DialogActions>
+           <Button onClick={closePreviewDialog}>Close</Button>
         </DialogActions>
       </Dialog>
 

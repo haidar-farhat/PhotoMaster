@@ -122,4 +122,32 @@ export const replacePhoto = async (photoId, base64Image) => {
   }
 };
 
+
+// Fetch the full image data as a Blob
+export const getPhotoImage = async (photoId) => {
+  try {
+    const response = await api.get(`/pictures/${photoId}/image`, {
+      responseType: 'blob' // Important: expect binary data
+    });
+    return response.data; // This will be a Blob
+  } catch (error) {
+    console.error('Error fetching full image:', error);
+    throw error;
+  }
+};
+
+// Fetch the thumbnail image data as a Blob
+export const getPhotoThumbnail = async (photoId) => {
+  try {
+    const response = await api.get(`/pictures/${photoId}/thumbnail`, {
+      responseType: 'blob' // Important: expect binary data
+    });
+    return response.data; // This will be a Blob
+  } catch (error) {
+    console.error('Error fetching thumbnail:', error);
+    // Don't throw here, allow fallback in component
+    return null; 
+  }
+};
+
 export default api;
