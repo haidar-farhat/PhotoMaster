@@ -40,19 +40,34 @@ function Dashboard({ user }) {
       const newPhoto = await uploadPhoto(user.id, filename, file);
       console.log('Upload successful, received:', newPhoto);
       
-      // Verify newPhoto has expected properties
-      if (newPhoto && newPhoto.id) {
-        // Refresh the entire photos list instead of just appending
-        await fetchPhotos();
-        return true; // Indicate success to the UploadDialog
+      // More robust response checking
+      if (newPhoto) {
+        if (newPhoto.id) {
+          // Success case - refresh photos
+          await fetchPhotos();
+          return true;
+        } else {
+          // Response exists but missing ID
+          console.error('Upload response missing ID:', newPhoto);
+          setError('Server returned invalid photo data');
+          return false;
+        }
       } else {
-        console.error('Upload response missing expected data:', newPhoto);
+        // No response data at all
+        console.error('Empty upload response');
+        setError('No response from server');
         return false;
       }
     } catch (err) {
+      // Detailed error logging
       console.error('Upload error:', err);
-      setError(`Failed to upload: ${err.message || 'Unknown error'}`);
-      return false; // Indicate failure to the UploadDialog
+      console.error('Error details:', {
+        message: err.message,
+        stack: err.stack,
+        response: err.response
+      });
+      setError(`Upload failed: ${err.message || 'Unknown error'}`);
+      return false;
     }
   };
 

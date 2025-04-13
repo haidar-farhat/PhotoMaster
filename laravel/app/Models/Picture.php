@@ -19,6 +19,10 @@ class Picture extends Model
         'filename',
         'path',
         'url',
+        'thumbnail_path',
+        'thumbnail_url',
+        'file_size',
+        'mime_type'
     ];
 
     /**
@@ -27,5 +31,21 @@ class Picture extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Get formatted file size
+     */
+    public function getFormattedFileSizeAttribute()
+    {
+        $bytes = $this->file_size;
+
+        if ($bytes < 1024) {
+            return $bytes . ' B';
+        } elseif ($bytes < 1048576) {
+            return round($bytes / 1024, 2) . ' KB';
+        } else {
+            return round($bytes / 1048576, 2) . ' MB';
+        }
     }
 }

@@ -68,27 +68,37 @@ export const getUserPhotos = async (userId) => {
 
 export const uploadPhoto = async (userId, filename, file) => {
   try {
-    // Create a FormData object for file upload
     const formData = new FormData();
     formData.append('user_id', userId);
     formData.append('filename', filename);
     formData.append('photo', file);
-    
-    console.log('Uploading file:', filename);
-    
-    // Use axios directly with FormData
+
+    // Log the form data for debugging
+    console.log('Uploading with data:', {
+      userId,
+      filename,
+      fileSize: file.size,
+      fileType: file.type
+    });
+
     const response = await axios.post(`${API_URL}/pictures`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
         'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      timeout: 60000 // 1 minute timeout for uploads
+      }
     });
+
+    console.log('Upload response:', response.data);
+    
+    // Check if the path in response matches expected format
+    if (response.data && response.data.path) {
+      console.log('Stored image path:', response.data.path);
+    }
     
     return response.data;
   } catch (error) {
-    console.error('Upload error details:', error.response?.data || error.message);
-    throw error.response?.data || error;
+    console.error('API error in uploadPhoto:', error);
+    throw error;
   }
 };
 

@@ -1,6 +1,6 @@
 FROM php:8.1-fpm
 
-# Install dependencies
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     git \
     curl \
@@ -19,29 +19,20 @@ RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
 # Get latest Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
+# Set working directory
 WORKDIR /var/www/html
 
-# Create storage directory structure
-RUN mkdir -p storage/app/public/images \
-    storage/framework/cache \
-    storage/framework/sessions \
-    storage/framework/views \
-    storage/logs
+# Copy existing application directory contents
+COPY . /var/www/html
 
-# Set proper permissions
-RUN chmod -R 775 storage
-RUN chown -R www-data:www-data storage
+# Install dependencies
+RUN composer install
 
-# Copy only composer files first for better caching
-COPY composer.json composer.lock ./
-RUN composer install --no-scripts --no-autoloader
+# Set permissions for storage directory
+RUN chmod -R 777 /var/www/html/storage
 
-# Copy the rest of the application
-COPY . .
-
-# Generate optimized autoload files
-RUN composer dump-autoload --optimize
-
+# Expose port 8000
 EXPOSE 8000
 
-CMD ["php", "artisan", "serve", "--host=0.0.0.0"]
+# Start PHP server
+CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]

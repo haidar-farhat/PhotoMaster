@@ -21,6 +21,7 @@ services:
       - ./laravel/artisan:/var/www/html/artisan
       - ./laravel/composer.json:/var/www/html/composer.json
       - ./laravel/composer.lock:/var/www/html/composer.lock
+      - ./laravel/storage:/var/www/html/storage
     depends_on:
       mysql:
         condition: service_healthy
@@ -31,38 +32,45 @@ services:
       - DB_PORT=3306
       - DB_DATABASE=photomaster
       - DB_USERNAME=root
-      - DB_PASSWORD=secret
+      - DB_PASSWORD=root
     networks:
       - photomaster-network
-    command: bash -c "php artisan config:clear && php artisan migrate --force && php artisan storage:link && php artisan serve --host=0.0.0.0"
+    command: bash -c "
+      php artisan config:clear && 
+      php artisan cache:clear && 
+      php artisan view:clear && 
+      php artisan route:clear && 
+      chmod -R 777 storage && 
+      php artisan migrate --force && 
+      php artisan storage:link && 
+      php artisan serve --host=0.0.0.0"
 
   # MySQL Database
   mysql:
     image: mysql:8.0
     ports:
-      - "33060:3306"
+      - "3307:3306"  # Changed from 3306:3306 to avoid conflict
     environment:
-      - MYSQL_DATABASE=photomaster
-      - MYSQL_ROOT_PASSWORD=secret
+      MYSQL_DATABASE: photomaster
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_HOST: "%"  # Allow connections from any host
     volumes:
       - mysql_data:/var/lib/mysql
-    networks:
-      - photomaster-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-psecret"]
-      interval: 5s
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
       timeout: 5s
       retries: 10
+    networks:
+      - photomaster-network
 
-  # phpMyAdmin
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
     ports:
       - "8080:80"
     environment:
-      - PMA_HOST=mysql
-      - PMA_PORT=3306
-      - MYSQL_ROOT_PASSWORD=secret
+      PMA_HOST: mysql
+      PMA_PORT: 3306  # This is the internal container port, which remains 3306
+      MYSQL_ROOT_PASSWORD: root
     depends_on:
       - mysql
     networks:

@@ -5,14 +5,12 @@ import DownloadIcon from '@mui/icons-material/Download';
 
 // Add PhotoCard as a separate component
 const PhotoCard = ({ photo, onDelete, handleDownload }) => {
+  // In the PhotoCard component
   const [imgSrc, setImgSrc] = React.useState(() => {
-    try {
-      if (photo?.url?.startsWith('http')) return photo.url;
-      if (photo?.path) return `http://localhost:8000/storage/${photo.path}?ts=${Date.now()}`;
-      return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
-    } catch {
-      return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
-    }
+    console.log('Photo data:', photo);
+    if (photo?.url?.startsWith('http')) return photo.url;
+    if (photo?.path) return `http://localhost:8000/storage/${photo.path}?${Date.now()}`;
+    return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
   });
 
   const errorRef = React.useRef(false);

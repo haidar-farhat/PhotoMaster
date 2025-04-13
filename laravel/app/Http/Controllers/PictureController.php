@@ -29,30 +29,56 @@ class PictureController extends Controller
         $data = $request->validate([
             'user_id' => 'required|exists:users,id',
             'filename' => 'required|string|max:255',
-            'photo' => 'required|file|image|max:10240', // 10MB max
+            'photo' => 'required|file|image|max:10240',
         ]);
 
         try {
-            Log::info('Processing image upload', ['user_id' => $data['user_id'], 'filename' => $data['filename']]);
+            $file = $request->file('photo');
 
-            $path = $request->file('photo')->store('images/' . $data['user_id'], 'public');
+            // Generate a unique filename with original extension
+            $originalExtension = $file->getClientOriginalExtension();
+            $uniqueFilename = uniqid() . '_' . time() . '.' . $originalExtension;
+
+            // Create user-specific folder with better organization
+            $userFolder = 'users/' . $data['user_id'] . '/' . date('Y/m');
+
+            // Store with custom filename
+            $path = $file->storeAs($userFolder, $uniqueFilename, 'public');
+
+            // Generate optimized thumbnail
+            $thumbnailPath = $this->createThumbnail($file, $userFolder, $uniqueFilename);
+
+            Log::info('File stored at: ' . storage_path('app/public/' . $path));
 
             $picture = $this->pictureService->create([
-                'user_id' => $data['user_id'],  // Add this line to pass user_id
-                'filename' => $data['filename'], // Add this line to pass filename
+                'user_id' => $data['user_id'],
+                'filename' => $data['filename'],
                 'path' => $path,
-                'url' => asset('storage/'.$path)
+                'thumbnail_path' => $thumbnailPath,
+                'file_size' => $file->getSize(),
+                'mime_type' => $file->getMimeType(),
+                'url' => asset('storage/' . $path),
+                'thumbnail_url' => asset('storage/' . $thumbnailPath)
             ]);
 
-            return response()->json($picture, 201);
-        } catch (\Exception $e) {
-            Log::error('Image upload failed', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine()
-            ]);
+            // Add error handling for empty response
+            if (!$picture) {
+                throw new \Exception('Failed to create picture record');
+            }
 
             return response()->json([
+                'id' => $picture->id,
+                'user_id' => $picture->user_id,
+                'filename' => $picture->filename,
+                'path' => $picture->path,
+                'url' => $picture->url,
+                'created_at' => $picture->created_at
+            ], 201);
+
+        } catch (\Exception $e) {
+            Log::error('Image storage failed: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
                 'message' => 'Image upload failed',
                 'error' => $e->getMessage()
             ], 500);
@@ -113,5 +139,42 @@ class PictureController extends Controller
     {
         $photos = $this->pictureService->getByUserId($user->id);
         return response()->json($photos);
+    }
+
+    /**
+     * Create a thumbnail version of the uploaded image
+     *
+     * @param mixed $file
+     * @param mixed $folder
+     * @param mixed $filename
+     * @return string|null
+     */
+    private function createThumbnail($file, $folder, $filename)
+    {
+        try {
+            // Load image with Intervention Image
+            $image = \Intervention\Image\Facades\Image::make($file);
+
+            // Create thumbnail filename
+            $thumbnailFilename = 'thumb_' . $filename;
+            $thumbnailPath = $folder . '/' . $thumbnailFilename;
+            $fullPath = storage_path('app/public/' . $folder);
+
+            // Create directory if it doesn't exist
+            if (!file_exists($fullPath)) {
+                mkdir($fullPath, 0755, true);
+            }
+
+            // Resize and save thumbnail
+            $image->resize(300, null, function ($constraint) {
+                $constraint->aspectRatio();
+                $constraint->upsize();
+            })->save(storage_path('app/public/' . $thumbnailPath));
+
+            return $thumbnailPath;
+        } catch (\Exception $e) {
+            Log::error('Thumbnail creation failed: ' . $e->getMessage());
+            return null;
+        }
     }
 }
