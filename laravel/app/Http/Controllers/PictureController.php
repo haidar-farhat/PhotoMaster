@@ -13,7 +13,6 @@ use Illuminate\Support\Facades\Response as ResponseFacade;
 use App\Models\User;
 use App\Models\Picture;
 use App\Services\PictureService;
-use App\Rules\Base64Image;
 use Intervention\Image\Facades\Image;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -61,9 +60,9 @@ class PictureController extends Controller
 
             $userFolder = 'users/' . $request->user_id . '/' . date('Y/m');
             $path = $file->storeAs($userFolder, $uniqueFilename, 'public');
-            $thumbnailPath = null;
+            $thumbnailPath = $this->createThumbnail($file, $userFolder, $uniqueFilename);
             $url = url('storage/' . $path);
-            $thumbnailUrl = null;
+            $thumbnailUrl = $thumbnailPath ? url('storage/' . $thumbnailPath) : null;
 
             $pictureData = [
                 'user_id' => $request->user_id,
@@ -134,11 +133,6 @@ class PictureController extends Controller
             if ($request->has('image')) {
                 try {
                     $imageData = $this->extractImageData($request->image);
-                    if ($imageData === false) {
-                        Log::error('Failed to extract image data from request');
-                        return response()->json(['message' => 'Invalid image data'], 400);
-                    }
-
                     $path = $picture->path;
 
                     if (empty($path)) {
@@ -151,8 +145,7 @@ class PictureController extends Controller
                     Log::info('Updating image at existing path: ' . $path);
 
                     if (!$this->saveImageData($imageData, $path)) {
-                        Log::error('Failed to save image data for picture ID: ' . $id);
-                        return response()->json(['message' => 'Failed to save image'], 500);
+                        throw new \Exception('Failed to save image data');
                     }
 
                     $picture->file_size = Storage::disk('public')->size($path);
@@ -189,381 +182,284 @@ class PictureController extends Controller
 
     public function destroy(Picture $picture)
     {
-        $result = $this->pictureService->delete($picture->id);
+        try {
+            DB::beginTransaction();
 
-        if ($result) {
+            // Delete associated files
+            if ($picture->path && Storage::disk('public')->exists($picture->path)) {
+                Storage::disk('public')->delete($picture->path);
+            }
+            if ($picture->thumbnail_path && Storage::disk('public')->exists($picture->thumbnail_path)) {
+                Storage::disk('public')->delete($picture->thumbnail_path);
+            }
+
+            // Delete database record
+            $result = $this->pictureService->delete($picture->id);
+
+            if (!$result) {
+                throw new \Exception('Failed to delete picture record');
+            }
+
+            DB::commit();
             return response()->json(['message' => 'Picture deleted successfully']);
-        }
 
-        return response()->json(['message' => 'Failed to delete picture'], 500);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Deletion Error: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'DELETION_ERROR',
+                'message' => $e->getMessage()
+            ], 500);
+        }
     }
 
     public function replaceImage(Request $request, Picture $picture)
     {
-        Log::info("Replace image request received for Picture ID: " . $picture->id);
-
         try {
-            $validatedData = $request->validate([
-                'image_data' => 'required|string',
+            $validated = $request->validate([
+                'image_data' => 'required|string|min:100'
             ]);
 
-            if ($picture->user_id !== Auth::id()) {
-                Log::warning("Unauthorized access attempt by user ID: " . Auth::id());
-                return response()->json(['message' => 'Unauthorized'], 403);
+            $binaryData = $this->extractImageData($validated['image_data']);
+            $tempFile = tempnam(sys_get_temp_dir(), 'img');
+            file_put_contents($tempFile, $binaryData);
+
+            $imageInfo = @getimagesize($tempFile);
+            if ($imageInfo === false || $imageInfo[2] !== IMAGETYPE_JPEG) {
+                throw new \Exception("Invalid JPEG file content");
             }
 
-            $imageData = $this->extractImageData($validatedData['image_data']);
-            if ($imageData === false) {
-                Log::error("Failed to extract image data from base64 string");
-                return response()->json(['message' => 'Invalid image data'], 400);
-            }
+            $path = $this->storeProcessedImage($tempFile, $picture);
 
-            $path = $picture->path;
-
-            if (empty($path) || !Storage::disk('public')->exists($path)) {
-                $userFolder = 'users/' . $picture->user_id . '/' . date('Y/m');
-                $originalFilename = pathinfo($picture->filename, PATHINFO_FILENAME);
-                $safeFilename = Str::slug($originalFilename) . '_' . uniqid() . '.jpg';
-                $path = "$userFolder/$safeFilename";
-                Log::info("Original path not found, creating new path: {$path}");
-            } else {
-                Log::info("Using existing path for update: {$path}");
-            }
-
-            if (!$this->saveImageData($imageData, $path)) {
-                Log::error("Failed to save image data for picture ID: " . $picture->id);
-                return response()->json(['message' => 'Failed to save image'], 500);
-            }
-
-            $picture->path = $path;
-            $picture->file_size = Storage::disk('public')->size($path);
-            $picture->mime_type = 'image/jpeg';
-
-            if (!$picture->save()) {
-                Log::error("Failed to update picture record for ID: " . $picture->id);
-                return response()->json(['message' => 'Failed to update picture database record'], 500);
-            }
-
-            Log::info("Image replaced successfully for Picture ID: " . $picture->id . ", path: " . $path);
+            $picture->update([
+                'path' => $path,
+                'file_size' => filesize($tempFile),
+                'mime_type' => 'image/jpeg'
+            ]);
 
             return response()->json([
-                'message' => 'Image replaced successfully',
-                'picture' => new PictureResource($picture->fresh())
+                'message' => 'Image updated successfully',
+                'path' => $path
             ]);
 
         } catch (\Exception $e) {
-            Log::error("Error replacing image: " . $e->getMessage());
-            return response()->json(['message' => 'Error replacing image: ' . $e->getMessage()], 500);
+            Log::error("Image replacement failed: " . $e->getMessage(), [
+                'trace' => $e->getTrace(),
+                'request' => $request->all()
+            ]);
+            return response()->json([
+                'error' => 'IMAGE_PROCESSING_ERROR',
+                'message' => $e->getMessage()
+            ], 400);
+        } finally {
+            if (isset($tempFile) && file_exists($tempFile)) {
+                unlink($tempFile);
+            }
         }
     }
 
     public function getUserPhotos(User $user)
     {
-        $photos = $this->pictureService->getByUserId($user->id);
-        Log::info("Photos data BEFORE sending JSON for User ID: {$user->id}", $photos->toArray());
-        return response()->json($photos);
+        try {
+            $photos = $this->pictureService->getByUserId($user->id);
+            Log::info("Photos data for User ID: {$user->id}", ['count' => count($photos)]);
+            return response()->json($photos);
+        } catch (\Exception $e) {
+            Log::error("Error fetching user photos: " . $e->getMessage());
+            return response()->json([
+                'error' => 'PHOTO_FETCH_ERROR',
+                'message' => 'Failed to retrieve user photos'
+            ], 500);
+        }
+    }
+
+    public function getImage(Picture $picture)
+    {
+        try {
+            if (!$picture->path || !Storage::disk('public')->exists($picture->path)) {
+                throw new NotFoundHttpException('Image not found');
+            }
+
+            return response(
+                Storage::disk('public')->get($picture->path),
+                200,
+                [
+                    'Content-Type' => $picture->mime_type ?? 'image/jpeg',
+                    'Cache-Control' => 'public, max-age=31536000'
+                ]
+            );
+        } catch (\Exception $e) {
+            Log::error("Image retrieval failed: " . $e->getMessage());
+            return response()->json([
+                'error' => 'IMAGE_NOT_FOUND',
+                'message' => 'Requested image could not be found'
+            ], 404);
+        }
+    }
+
+    public function getThumbnail(Picture $picture)
+    {
+        try {
+            $path = $picture->thumbnail_path ?? $picture->path;
+
+            if (!$path || !Storage::disk('public')->exists($path)) {
+                throw new NotFoundHttpException('Thumbnail not found');
+            }
+
+            return response(
+                Storage::disk('public')->get($path),
+                200,
+                [
+                    'Content-Type' => $picture->mime_type ?? 'image/jpeg',
+                    'Cache-Control' => 'public, max-age=31536000'
+                ]
+            );
+        } catch (\Exception $e) {
+            Log::error("Thumbnail retrieval failed: " . $e->getMessage());
+            return response()->json([
+                'error' => 'THUMBNAIL_NOT_FOUND',
+                'message' => 'Requested thumbnail could not be found'
+            ], 404);
+        }
     }
 
     private function createThumbnail($file, $folder, $filename)
     {
         try {
             $image = Image::make($file);
-            $thumbnailFilename = 'thumb_' . $filename;
-            $thumbnailPath = $folder . '/' . $thumbnailFilename;
-            $fullPath = storage_path('app/public/' . $folder);
-
-            if (!file_exists($fullPath)) {
-                mkdir($fullPath, 0755, true);
-            }
 
             $image->resize(300, null, function ($constraint) {
                 $constraint->aspectRatio();
                 $constraint->upsize();
             });
 
-            $image->save(storage_path('app/public/' . $thumbnailPath), 80);
+            $thumbnailFilename = 'thumb_' . $filename;
+            $thumbnailPath = $folder . '/' . $thumbnailFilename;
+
+            Storage::disk('public')->put($thumbnailPath, (string) $image->encode('jpg', 80));
 
             return $thumbnailPath;
         } catch (\Exception $e) {
-            Log::error('Failed to create thumbnail: ' . $e->getMessage());
+            Log::error('Thumbnail creation failed: ' . $e->getMessage());
             return null;
         }
     }
 
-    public function getImage(Picture $picture)
-    {
-        Log::info("Attempting to get image for Picture ID: {$picture->id}");
-        $storagePath = $picture->path;
-
-        if (!$picture->path || !Storage::disk('public')->exists($storagePath)) {
-            Log::error("Image file not found for Picture ID: {$picture->id} at path: {$storagePath}");
-            return response()->json(['error' => 'Image file not found in storage'], 404);
-        }
-
-        Log::info("Serving image file from path: {$storagePath}");
-        $absolutePath = storage_path('app/public/' . $storagePath);
-
-        if (!Storage::disk('public')->exists($storagePath)) {
-            Log::error("Image file not found in storage: {$storagePath}");
-            throw new NotFoundHttpException('Image not found');
-        }
-
-        return response(
-            Storage::disk('public')->get($storagePath),
-            200,
-            [
-                'Content-Type' => $picture->mime_type ?? 'application/octet-stream',
-                'Cache-Control' => 'public, max-age=31536000'
-            ]
-        );
-    }
-
-    public function getThumbnail(Picture $picture)
-    {
-        if (!$picture->thumbnail_path) {
-            return $this->getImage($picture);
-        }
-
-        Log::info("Attempting to get thumbnail for Picture ID: {$picture->id}");
-        $storagePath = $picture->thumbnail_path;
-
-        if (!$picture->thumbnail_path || !Storage::disk('public')->exists($storagePath)) {
-            Log::warning("Thumbnail file not found for Picture ID: {$picture->id} at path: {$storagePath}");
-            return $this->getImage($picture);
-        }
-
-        Log::info("Serving thumbnail file from path: {$storagePath}");
-        $absolutePath = storage_path('app/public/' . $storagePath);
-
-        if (!Storage::disk('public')->exists($storagePath)) {
-            Log::error("Thumbnail not found in storage: {$storagePath}");
-            throw new NotFoundHttpException('Thumbnail not found');
-        }
-
-        return response(
-            Storage::disk('public')->get($storagePath),
-            200,
-            [
-                'Content-Type' => $picture->mime_type ?? 'application/octet-stream',
-                'Cache-Control' => 'public, max-age=31536000'
-            ]
-        );
-    }
-
-    private function createThumbnailFromIntervention($img, $folder, $filename, $extension)
+    private function extractImageData($base64String)
     {
         try {
-            $thumbnailFilename = 'thumb_' . $filename;
-            $thumbnailPath = "$folder/$thumbnailFilename";
+            $base64Data = preg_replace('/^data:image\/\w+;base64,/', '', $base64String);
+            $base64Data = str_replace([' ', '-', '_'], ['', '+', '/'], $base64Data);
 
-            $thumbImg = clone $img;
-            $thumbImg->resize(300, null, function ($constraint) {
-                $constraint->aspectRatio();
-                $constraint->upsize();
-            });
+            if (strlen($base64Data) % 4 !== 0 || !preg_match('/^[A-Za-z0-9+\/=]*$/', $base64Data)) {
+                throw new \Exception("Invalid base64 encoding");
+            }
 
-            Storage::disk('public')->put($thumbnailPath, $thumbImg->encode($extension));
+            $binaryData = base64_decode($base64Data, true);
+            if ($binaryData === false) {
+                throw new \Exception("Base64 decoding failed");
+            }
 
-            return $thumbnailPath;
+            if (strlen($binaryData) < 100 || substr($binaryData, 0, 2) !== "\xFF\xD8") {
+                throw new \Exception("Invalid JPEG file structure");
+            }
+
+            return $binaryData;
         } catch (\Exception $e) {
-            Log::error('Thumbnail creation error: ' . $e->getMessage());
-            return null;
+            Log::error("Image extraction failed: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    private function storeProcessedImage($tempPath, $picture)
+    {
+        try {
+            if (!file_exists($tempPath) || filesize($tempPath) < 1024) {
+                throw new \Exception("Invalid source file");
+            }
+
+            $image = Image::make($tempPath);
+
+            if ($image->width() < 10 || $image->height() < 10) {
+                throw new \Exception("Invalid image dimensions");
+            }
+
+            $path = "images/{$picture->user_id}/" . Str::uuid() . '.jpg';
+            $image->save(storage_path("app/public/$path"), 92);
+
+            if (!Storage::disk('public')->exists($path)) {
+                throw new \Exception("Failed to persist image");
+            }
+
+            return $path;
+        } catch (\Exception $e) {
+            Log::error("Image processing failed: " . $e->getMessage());
+            throw $e;
         }
     }
 
     private function isValidJpeg($file)
     {
-        if (!file_exists($file) || !is_readable($file)) {
-            Log::error("JPEG validation failed: File doesn't exist or is not readable");
-            return false;
-        }
+        try {
+            if (!file_exists($file) || !is_readable($file)) {
+                throw new \Exception("File inaccessible");
+            }
 
-        $handle = fopen($file, 'rb');
-        if (!$handle) {
-            Log::error("JPEG validation failed: Could not open file for reading");
-            return false;
-        }
+            $handle = fopen($file, 'rb');
+            if (!$handle) {
+                throw new \Exception("Could not open file");
+            }
 
-        $header = fread($handle, 3);
-        fclose($handle);
+            $header = fread($handle, 4);
+            fclose($handle);
 
-        if (strlen($header) < 3) {
-            Log::error("JPEG validation failed: Could not read header bytes");
-            return false;
-        }
+            $validHeaders = [
+                bin2hex("\xFF\xD8\xFF\xE0"), // JFIF
+                bin2hex("\xFF\xD8\xFF\xE1"), // Exif
+                bin2hex("\xFF\xD8\xFF\xDB"), // Baseline
+            ];
 
-        $isJpegHeader = ord($header[0]) === 0xFF &&
-                  ord($header[1]) === 0xD8 &&
-                  ord($header[2]) === 0xFF;
+            if (!in_array(bin2hex($header), $validHeaders)) {
+                throw new \Exception("Invalid JPEG header");
+            }
 
-        if (!$isJpegHeader) {
-            Log::error("JPEG validation failed: Invalid header bytes: " . bin2hex(substr($header, 0, 3)));
-            return false;
-        }
+            $imageInfo = @getimagesize($file);
+            if ($imageInfo === false || $imageInfo[2] !== IMAGETYPE_JPEG) {
+                throw new \Exception("Invalid JPEG content");
+            }
 
-        $imageInfo = @getimagesize($file);
-        if ($imageInfo === false) {
-            Log::error("JPEG validation failed: getimagesize could not read the file");
-            return false;
-        }
-
-        if ($imageInfo[2] !== IMAGETYPE_JPEG) {
-            Log::error("JPEG validation failed: getimagesize reports non-JPEG type: " . $imageInfo[2]);
-            return false;
-        }
-
-        // Temporarily allow small images for testing
-        if ($imageInfo[0] < 1 || $imageInfo[1] < 1) {
-            Log::warning("Allowing small test image: " . $imageInfo[0] . "x" . $imageInfo[1]);
             return true;
-        }
-
-        if ($imageInfo[0] > 8000 || $imageInfo[1] > 8000) {
-            Log::error("Image dimensions too large: " . $imageInfo[0] . "x" . $imageInfo[1]);
+        } catch (\Exception $e) {
+            Log::error("JPEG validation failed: " . $e->getMessage());
             return false;
         }
-
-        Log::debug("JPEG validation passed: " . $imageInfo[0] . "x" . $imageInfo[1] .
-                  ", mime: " . $imageInfo['mime'] .
-                  ", header: " . bin2hex(substr($header, 0, 3)));
-        return true;
-    }
-
-    private function extractImageData($base64String)
-    {
-        Log::debug("Extracting image data from base64 string, length: " . strlen($base64String));
-
-        if (empty($base64String)) {
-            Log::error("Base64 string is empty");
-            return false;
-        }
-
-        if (strpos($base64String, 'data:image/jpeg;base64,') === 0) {
-            $base64Data = substr($base64String, 23); // Fixed offset calculation
-            Log::debug("Extracted base64 data from data URI scheme, length: " . strlen($base64Data));
-        } else {
-            $base64Data = $base64String;
-            Log::debug("Using input as raw base64 data, length: " . strlen($base64Data));
-        }
-
-        $base64Data = preg_replace('/\s+/', '', $base64Data);
-
-        if (!preg_match('/^[A-Za-z0-9+\/=]+$/', $base64Data)) {
-            Log::error("Invalid base64 characters found in string");
-            return false;
-        }
-
-        $binaryData = base64_decode($base64Data, true);
-        if ($binaryData === false) {
-            Log::error("Failed to decode base64 data");
-            return false;
-        }
-
-        $decodedSize = strlen($binaryData);
-        if ($decodedSize < 100) {
-            Log::error("Decoded image data is too small: " . $decodedSize . " bytes");
-            return false;
-        }
-
-        if (substr($binaryData, 0, 2) !== "\xFF\xD8") {
-            Log::error("Decoded data is not a valid JPEG (invalid header): " . bin2hex(substr($binaryData, 0, 3)));
-            return false;
-        }
-
-        Log::info("Successfully extracted JPEG image data, size: " . $decodedSize . " bytes");
-        return $binaryData;
     }
 
     private function saveImageData($imageData, $path)
     {
-        $tempFile = tempnam(sys_get_temp_dir(), 'jpeg_validation_');
-        if ($tempFile === false) {
-            Log::error("Failed to create temporary file for image validation");
-            return false;
-        }
-
+        $tempFile = tempnam(sys_get_temp_dir(), 'jpeg');
         try {
-            $dataLength = strlen($imageData);
-            Log::debug("Image data length before saving: " . $dataLength . " bytes");
-
-            if ($dataLength === 0) {
-                Log::error("Image data is empty (0 bytes)");
-                return false;
-            }
-
-            $headerHex = bin2hex(substr($imageData, 0, 8));
-            Log::debug("Image data header: " . $headerHex);
-
-            if (substr($imageData, 0, 2) !== "\xFF\xD8") {
-                Log::error("Image data does not have a valid JPEG header: " . $headerHex);
-                return false;
-            }
-
-            $bytesWritten = file_put_contents($tempFile, $imageData);
-            if ($bytesWritten === false || $bytesWritten === 0) {
-                Log::error("Failed to write image data to temporary file, bytes written: " .
-                          ($bytesWritten === false ? "FALSE" : $bytesWritten));
-                return false;
-            }
-
-            if ($bytesWritten !== $dataLength) {
-                Log::warning("Bytes written (" . $bytesWritten . ") differs from data length (" . $dataLength . ")");
-            } else {
-                Log::debug("Successfully wrote " . $bytesWritten . " bytes to temporary file");
-            }
-
-            $fileSize = filesize($tempFile);
-            Log::debug("Temporary file size: " . $fileSize . " bytes");
-
-            if ($fileSize === 0) {
-                Log::error("Image file size is 0 bytes");
-                return false;
-            }
-
-            if ($fileSize > 20 * 1024 * 1024) {
-                Log::error("Image file too large: " . $fileSize . " bytes");
-                return false;
+            if (file_put_contents($tempFile, $imageData) === false) {
+                throw new \Exception("Failed to write temp file");
             }
 
             if (!$this->isValidJpeg($tempFile)) {
-                Log::error("Invalid JPEG file format");
-                return false;
+                throw new \Exception("Invalid JPEG format");
             }
 
-            $imageInfo = @getimagesize($tempFile);
-            if ($imageInfo === false) {
-                Log::error("getimagesize failed - not a valid image");
-                return false;
+            Storage::disk('public')->put($path, file_get_contents($tempFile));
+
+            if (!Storage::disk('public')->exists($path)) {
+                throw new \Exception("File storage failed");
             }
 
-            if ($imageInfo[2] !== IMAGETYPE_JPEG) {
-                Log::error("Image is not a JPEG, detected type: " . $imageInfo[2]);
-                return false;
-            }
-
-            Log::debug("Image validated successfully: " . $imageInfo[0] . "x" . $imageInfo[1] . " type: " . $imageInfo['mime']);
-
-            if (!Storage::disk('public')->put($path, file_get_contents($tempFile))) {
-                Log::error("Failed to save image to final location: " . $path);
-                return false;
-            }
-
-            $savedFileSize = Storage::disk('public')->size($path);
-            if ($savedFileSize === 0) {
-                Log::error("Saved file has 0 bytes in storage at: " . $path);
-                Storage::disk('public')->delete($path);
-                return false;
-            }
-
-            Log::debug("Final saved file size: " . $savedFileSize . " bytes at path: " . $path);
-            Log::info("Successfully saved image to: " . $path);
             return true;
         } catch (\Exception $e) {
-            Log::error("Exception while saving image: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            Log::error("Image save failed: " . $e->getMessage());
             return false;
         } finally {
             if (file_exists($tempFile)) {
-                @unlink($tempFile);
+                unlink($tempFile);
             }
         }
     }

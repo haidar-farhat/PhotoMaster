@@ -2,7 +2,6 @@ import axios from "axios";
 
 const API_URL = "http://localhost:8000/api";
 
-// Update the axios instance configuration
 const api = axios.create({
   baseURL: API_URL,
   headers: {
@@ -12,7 +11,7 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add a request interceptor to include the token in all requests
+// Request interceptor for auth token
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("token");
@@ -21,7 +20,18 @@ api.interceptors.request.use(
     }
     return config;
   },
+  (error) => Promise.reject(error)
+);
+
+// Response interceptor for error handling
+api.interceptors.response.use(
+  (response) => response,
   (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      window.location.href = "/login";
+    }
     return Promise.reject(error);
   }
 );
@@ -33,7 +43,7 @@ export const login = async (email, password) => {
     localStorage.setItem("user", JSON.stringify(response.data.user));
     return response.data;
   } catch (error) {
-    throw error.response.data;
+    throw error.response?.data || { message: "Login failed" };
   }
 };
 
@@ -42,7 +52,7 @@ export const register = async (name, email, password) => {
     const response = await api.post("/register", { name, email, password });
     return response.data;
   } catch (error) {
-    throw error.response.data;
+    throw error.response?.data || { message: "Registration failed" };
   }
 };
 
@@ -53,19 +63,17 @@ export const logout = async () => {
     localStorage.removeItem("user");
   } catch (error) {
     console.error("Logout error:", error);
+    throw error.response?.data || { message: "Logout failed" };
   }
 };
 
-// Fixed getUserPhotos function - removed duplicate
 export const getUserPhotos = async (userId) => {
   try {
     const response = await api.get(`/users/${userId}/photos`);
-    console.log("Raw API response:", response);
-    // Handle both response formats
     return response.data?.photos || response.data || [];
   } catch (error) {
     console.error("Error fetching photos:", error);
-    return [];
+    throw error.response?.data || { message: "Failed to fetch photos" };
   }
 };
 
@@ -75,42 +83,22 @@ export const uploadPhoto = async (userId, filename, file) => {
     formData.append("user_id", userId);
     formData.append("filename", filename);
 
-    // Convert to JPEG if needed and add to form data
     const processedFile = await convertImageToJpeg(file);
     formData.append("photo", processedFile, processedFile.name);
-
-    console.log("Uploading with data:", {
-      userId,
-      filename,
-      fileSize: processedFile.size,
-      fileType: processedFile.type,
-    });
 
     const response = await api.post(`/pictures`, formData, {
       headers: {
         "Content-Type": "multipart/form-data",
-        "X-Debug-Conversion": "processed",
       },
     });
 
-    console.log("Upload response:", response.data);
-
-    if (response.data && response.data.path) {
-      console.log("Stored image path:", response.data.path);
-    }
-
     return response.data;
   } catch (error) {
-    console.error("Upload error details:", {
-      message: error.message,
-      response: error.response?.data,
-      stack: error.stack,
-    });
-    throw error;
+    console.error("Upload error:", error);
+    throw error.response?.data || { message: "Photo upload failed" };
   }
 };
 
-// New image conversion helper
 const convertImageToJpeg = async (file) => {
   if (file.type === "image/jpeg") return file;
 
@@ -150,68 +138,55 @@ export const deletePhoto = async (photoId) => {
     const response = await api.delete(`/pictures/${photoId}`);
     return response.data;
   } catch (error) {
-    throw error.response.data;
+    throw error.response?.data || { message: "Failed to delete photo" };
   }
 };
 
-// Fixed replacePhoto function to use the api instance
-export const replacePhoto = (id, base64Data) => {
-  return api.patch(`/pictures/${id}/image`, {
-    image_data: base64Data
-  }, {
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${localStorage.getItem('token')}`
-    }
-  });
-};
-
-// Helper function to convert any image format to JPEG
-const convertToJpeg = (base64Image) => {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      // Create a canvas to draw the image
-      const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-
-      // Get 2D context and draw with white background (for transparency)
-      const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#FFFFFF";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-
-      // Convert to JPEG
-      const jpegBase64 = canvas.toDataURL("image/jpeg", 0.92);
-      resolve(jpegBase64);
-    };
-
-    img.onerror = () => {
-      reject(new Error("Failed to load image for JPEG conversion"));
-    };
-
-    img.src = base64Image;
-  });
-};
-
-// Fetch the full image data as a Blob
-export const getPhotoImage = async (photoId) => {
+export const replacePhoto = async (id, base64Data) => {
   try {
-    const response = await api.get(`/pictures/${photoId}/image`, {
+    if (!base64Data || typeof base64Data !== 'string') {
+      throw new Error("No image data provided");
+    }
+
+    const response = await api.patch(`/pictures/${id}/image`, {
+      image_data: base64Data
+    }, {
+      headers: {
+        'Content-Transfer-Encoding': 'base64',
+        'X-Image-Length': base64Data.length
+      }
+    });
+    
+    return response.data;
+  } catch (error) {
+    console.error("API Error Details:", {
+      status: error.response?.status,
+      data: error.response?.data,
+      sentLength: base64Data?.length,
+      sentStart: base64Data?.slice(0, 50),
+      sentEnd: base64Data?.slice(-50)
+    });
+    throw error;
+  }
+};
+
+export const getPhotoImage = async (photoId, cacheBuster) => {
+  try {
+    const url = `/pictures/${photoId}/image${cacheBuster ? `?v=${cacheBuster}` : ''}`;
+    const response = await api.get(url, {
       responseType: "blob",
     });
     return response.data;
   } catch (error) {
     console.error("Error fetching full image:", error);
-    throw error;
+    throw error.response?.data || { message: "Failed to load image" };
   }
 };
 
-// Fetch the thumbnail image data as a Blob
-export const getPhotoThumbnail = async (photoId) => {
+export const getPhotoThumbnail = async (photoId, cacheBuster) => {
   try {
-    const response = await api.get(`/pictures/${photoId}/thumbnail`, {
+    const url = `/pictures/${photoId}/thumbnail${cacheBuster ? `?v=${cacheBuster}` : ''}`;
+    const response = await api.get(url, {
       responseType: "blob",
     });
     return response.data;
@@ -219,6 +194,34 @@ export const getPhotoThumbnail = async (photoId) => {
     console.error("Error fetching thumbnail:", error);
     return null;
   }
+};
+
+// Helper function for image conversion (used by ImageEditor)
+export const convertToJpeg = async (base64Image) => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      
+      // Fill with white background first
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      
+      // Convert to JPEG with quality 92%
+      const jpegBase64 = canvas.toDataURL("image/jpeg", 0.92);
+      resolve(jpegBase64);
+    };
+    
+    img.onerror = () => {
+      reject(new Error("Failed to load image for conversion"));
+    };
+    
+    img.src = base64Image;
+  });
 };
 
 export default api;

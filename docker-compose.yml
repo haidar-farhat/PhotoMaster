@@ -1,5 +1,3 @@
-version: '3'
-
 services:
   # Laravel Backend
   laravel:
@@ -9,7 +7,6 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Mount specific directories but exclude the problematic ones
       - ./laravel/app:/var/www/html/app
       - ./laravel/bootstrap:/var/www/html/bootstrap
       - ./laravel/config:/var/www/html/config
@@ -49,11 +46,11 @@ services:
   mysql:
     image: mysql:8.0
     ports:
-      - "3307:3306"  # Changed from 3306:3306 to avoid conflict
+      - "3307:3306"
     environment:
       MYSQL_DATABASE: photomaster
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_ROOT_HOST: "%"  # Allow connections from any host
+      MYSQL_ROOT_HOST: "%"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -66,10 +63,10 @@ services:
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
     ports:
-      - "8080:80"
+      - "8081:80"  # Changed from 8080
     environment:
       PMA_HOST: mysql
-      PMA_PORT: 3306  # This is the internal container port, which remains 3306
+      PMA_PORT: 3306
       MYSQL_ROOT_PASSWORD: root
     depends_on:
       - mysql
@@ -89,6 +86,18 @@ services:
       - CHOKIDAR_USEPOLLING=true
     depends_on:
       - laravel
+    networks:
+      - photomaster-network
+
+  # New App Service
+  app:
+    build: .
+    ports:
+      - "8080:80"
+    volumes:
+      - ./src:/var/www/html
+    environment:
+      - PHP_IMAGE_DRIVER=imagick
     networks:
       - photomaster-network
 

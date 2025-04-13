@@ -13,63 +13,54 @@ import {
   Button,
   CircularProgress,
   Box,
+  Snackbar,
+  Alert
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ZoomInIcon from "@mui/icons-material/ZoomIn";
-import DownloadIcon from "@mui/icons-material/Download";
 import EditIcon from "@mui/icons-material/Edit";
 import ImageEditor from "./ImageEditor";
-import { getPhotoThumbnail, getPhotoImage } from "../services/api"; // Import new functions
+import { getPhotoThumbnail, getPhotoImage, replacePhoto } from "../services/api";
 
 const PLACEHOLDER_IMAGE =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
-// Removed handleDownload prop
 function PhotoCard({ photo, onDelete }) {
   const [openPreview, setOpenPreview] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [imgSrc, setImgSrc] = useState(PLACEHOLDER_IMAGE); // Start with placeholder
+  const [imgSrc, setImgSrc] = useState(PLACEHOLDER_IMAGE);
   const [loading, setLoading] = useState(true);
-  const [previewImgSrc, setPreviewImgSrc] = useState(PLACEHOLDER_IMAGE); // For full-res preview
+  const [previewImgSrc, setPreviewImgSrc] = useState(PLACEHOLDER_IMAGE);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [openEditor, setOpenEditor] = useState(false);
-  const [imageVersion, setImageVersion] = useState(Date.now()); // Add a version counter for cache-busting
+  const [imageVersion, setImageVersion] = useState(Date.now());
+  const [error, setError] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Fetch thumbnail when photo changes or version updates
   useEffect(() => {
     let isMounted = true;
     let objectUrl = null;
 
     const fetchThumbnail = async () => {
-      if (!photo || !photo.id) return;
+      if (!photo?.id) return;
 
       setLoading(true);
-      setImgSrc(PLACEHOLDER_IMAGE); // Reset to placeholder while loading
+      setImgSrc(PLACEHOLDER_IMAGE);
 
       try {
-        // Add version to URL to bust cache when needed
-        const blob = await getPhotoThumbnail(photo.id);
+        const blob = await getPhotoThumbnail(photo.id, imageVersion);
         if (isMounted && blob) {
-          // Revoke previous objectUrl if it exists
           if (imgSrc && imgSrc !== PLACEHOLDER_IMAGE) {
             URL.revokeObjectURL(imgSrc);
           }
           objectUrl = URL.createObjectURL(blob);
           setImgSrc(objectUrl);
         } else if (isMounted) {
-          console.log(
-            "Thumbnail fetch returned null, using placeholder for photo ID:",
-            photo.id
-          );
           setImgSrc(PLACEHOLDER_IMAGE);
         }
       } catch (error) {
         if (isMounted) {
-          console.error(
-            "Error fetching thumbnail for photo ID:",
-            photo.id,
-            error
-          );
+          console.error("Error fetching thumbnail:", error);
           setImgSrc(PLACEHOLDER_IMAGE);
         }
       } finally {
@@ -81,42 +72,37 @@ function PhotoCard({ photo, onDelete }) {
 
     fetchThumbnail();
 
-    // Cleanup function
     return () => {
       isMounted = false;
       if (objectUrl) {
         URL.revokeObjectURL(objectUrl);
-        console.log("Revoked Object URL for photo ID:", photo.id);
       }
     };
-  }, [photo, imageVersion]); // Add imageVersion to dependencies
+  }, [photo, imageVersion]);
 
   const handleDelete = () => {
     onDelete(photo.id);
     setConfirmDelete(false);
   };
+
   const openPreviewDialog = async () => {
     setOpenPreview(true);
     if (previewImgSrc === PLACEHOLDER_IMAGE || previewImgSrc !== imgSrc) {
-      // Only fetch full res if not already loaded or different from thumbnail
       setLoadingPreview(true);
       let fullResObjectUrl = null;
       try {
-        const blob = await getPhotoImage(photo.id);
+        const blob = await getPhotoImage(photo.id, imageVersion);
         if (blob) {
           fullResObjectUrl = URL.createObjectURL(blob);
           setPreviewImgSrc(fullResObjectUrl);
         } else {
-          // If full image fails, use the thumbnail src
           setPreviewImgSrc(imgSrc);
         }
       } catch (error) {
-        console.error("Error fetching full image for preview:", error);
-        // Fallback to thumbnail src if full image fetch fails
+        console.error("Error fetching full image:", error);
         setPreviewImgSrc(imgSrc);
       } finally {
         setLoadingPreview(false);
-        // Clean up previous preview URL if it exists and is different
         if (
           previewImgSrc &&
           previewImgSrc !== PLACEHOLDER_IMAGE &&
@@ -130,71 +116,53 @@ function PhotoCard({ photo, onDelete }) {
 
   const closePreviewDialog = () => {
     setOpenPreview(false);
-    // Optional: Revoke preview URL immediately on close to save memory,
-    // but this means it refetches every time. Decide based on UX preference.
-    // if (previewImgSrc && previewImgSrc !== PLACEHOLDER_IMAGE) {
-    //   URL.revokeObjectURL(previewImgSrc);
-    //   setPreviewImgSrc(PLACEHOLDER_IMAGE);
-    // }
   };
 
-  // Refined handleEditClick to ensure full-res image URL is ready before opening editor
   const handleEditClick = async () => {
-    let urlToOpen = previewImgSrc; // Start with current preview URL
-
-    // If preview image isn't loaded or is potentially just the thumbnail URL, load the full res
-    // (Check against PLACEHOLDER and potentially imgSrc if thumbnail might be same as preview initially)
-    if (urlToOpen === PLACEHOLDER_IMAGE || urlToOpen === imgSrc) {
-      setLoadingPreview(true); // Indicate loading if needed
-      try {
-        const blob = await getPhotoImage(photo.id);
-        if (blob) {
-          const newUrl = URL.createObjectURL(blob);
-          // Clean up old preview URL if necessary and different
-          if (
-            previewImgSrc &&
-            previewImgSrc !== PLACEHOLDER_IMAGE &&
-            previewImgSrc !== newUrl
-          ) {
-            URL.revokeObjectURL(previewImgSrc);
-          }
-          setPreviewImgSrc(newUrl); // Update state for future use and for the prop
-          urlToOpen = newUrl; // Use the newly fetched URL for the check below
-        } else {
-          console.error("Failed to load full image blob for editing.");
-          setLoadingPreview(false);
-          return; // Don't open editor if image failed to load
+    setLoadingPreview(true);
+    try {
+      const blob = await getPhotoImage(photo.id, imageVersion);
+      if (blob) {
+        const newUrl = URL.createObjectURL(blob);
+        if (previewImgSrc && previewImgSrc !== PLACEHOLDER_IMAGE) {
+          URL.revokeObjectURL(previewImgSrc);
         }
-      } catch (error) {
-        console.error("Error fetching full image for editing:", error);
-        setLoadingPreview(false);
-        return; // Don't open editor if fetch failed
-      } finally {
-        setLoadingPreview(false);
+        setPreviewImgSrc(newUrl);
+        setOpenEditor(true);
+      } else {
+        setError("Failed to load image for editing");
       }
-    }
-
-    // Ensure we have a valid URL (not placeholder) before opening
-    if (urlToOpen && urlToOpen !== PLACEHOLDER_IMAGE) {
-      setOpenEditor(true); // Now open the editor, previewImgSrc state should be updated
-    } else {
-      console.error("Cannot open editor without a valid image source.");
-      // Optionally show an error message to the user
+    } catch (error) {
+      console.error("Error loading image for editing:", error);
+      setError("Error loading image for editing");
+    } finally {
+      setLoadingPreview(false);
     }
   };
 
-  // Add handleEditorSave function
-  const handleEditorSave = (updatedPhoto) => {
-    // Force refresh images by updating the version
-    setImageVersion(Date.now());
-
-    // Reset preview image to force a refetch
-    if (previewImgSrc && previewImgSrc !== PLACEHOLDER_IMAGE) {
-      URL.revokeObjectURL(previewImgSrc);
-      setPreviewImgSrc(PLACEHOLDER_IMAGE);
+  const handleEditorSave = async (updatedPhoto) => {
+    setIsSaving(true);
+    try {
+      // Force refresh images by updating the version
+      setImageVersion(Date.now());
+      
+      // Reset preview image to force a refetch
+      if (previewImgSrc && previewImgSrc !== PLACEHOLDER_IMAGE) {
+        URL.revokeObjectURL(previewImgSrc);
+        setPreviewImgSrc(PLACEHOLDER_IMAGE);
+      }
+      
+      console.log("Image updated successfully:", updatedPhoto);
+    } catch (error) {
+      console.error("Error handling editor save:", error);
+      setError("Failed to update image");
+    } finally {
+      setIsSaving(false);
     }
+  };
 
-    console.log("Image updated successfully:", updatedPhoto);
+  const handleCloseError = () => {
+    setError(null);
   };
 
   return (
@@ -222,7 +190,6 @@ function PhotoCard({ photo, onDelete }) {
               onClick={openPreviewDialog}
             />
           )}
-          {/* Removed Edit button from here */}
         </Box>
 
         <CardContent sx={{ flexGrow: 1 }}>
@@ -235,14 +202,14 @@ function PhotoCard({ photo, onDelete }) {
         </CardContent>
 
         <CardActions>
-          {/* Edit button replacing the Download button */}
           <IconButton
             size="small"
             color="primary"
-            onClick={handleEditClick} // Use the new handler
+            onClick={handleEditClick}
             title="Edit"
+            disabled={loadingPreview}
           >
-            <EditIcon />
+            {loadingPreview ? <CircularProgress size={24} /> : <EditIcon />}
           </IconButton>
           <IconButton
             size="small"
@@ -252,7 +219,6 @@ function PhotoCard({ photo, onDelete }) {
           >
             <ZoomInIcon />
           </IconButton>
-          {/* Removed Edit button from here */}
           <IconButton
             size="small"
             color="error"
@@ -291,8 +257,6 @@ function PhotoCard({ photo, onDelete }) {
           )}
         </DialogContent>
         <DialogActions>
-          {" "}
-          {/* Removed Edit button from preview dialog */}
           <Button onClick={closePreviewDialog}>Close</Button>
         </DialogActions>
       </Dialog>
@@ -311,20 +275,29 @@ function PhotoCard({ photo, onDelete }) {
       </Dialog>
 
       {/* Image Editor Dialog */}
-      {/* Pass the previewImgSrc (object URL) to the editor */}
       <ImageEditor
         open={openEditor}
         onClose={() => {
           setOpenEditor(false);
-          // Revoke the object URL when editor closes
           if (previewImgSrc && previewImgSrc !== PLACEHOLDER_IMAGE) {
             URL.revokeObjectURL(previewImgSrc);
             setPreviewImgSrc(PLACEHOLDER_IMAGE);
           }
         }}
         photo={photo}
-        onSave={handleEditorSave} // Use our new handler
+        onSave={handleEditorSave}
       />
+
+      {/* Error Snackbar */}
+      <Snackbar
+        open={!!error}
+        autoHideDuration={6000}
+        onClose={handleCloseError}
+      >
+        <Alert onClose={handleCloseError} severity="error" sx={{ width: "100%" }}>
+          {error}
+        </Alert>
+      </Snackbar>
     </Grid>
   );
 }

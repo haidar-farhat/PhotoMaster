@@ -2,3 +2,5 @@ public/storage
 storage/*
 vendor
 node_modules
+# .dockerignore
+public/storage
