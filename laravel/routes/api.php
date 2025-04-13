@@ -14,17 +14,10 @@ Route::get('/test', function () {
 });
 
 // Auth routes
-// Change this line
-// Update the AuthController route registration
-// AuthController is already imported at the top of the file
-
-// Add these routes with proper namespace
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
-Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
 
 // Protected routes
-// Update the pictures routes in the auth:sanctum middleware group
 Route::middleware('auth:sanctum')->group(function () {
     // Auth management
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -35,8 +28,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Pictures management
     Route::apiResource('pictures', PictureController::class);
     Route::post('pictures/{picture}/replace', [PictureController::class, 'replaceImage']);
+    Route::put('pictures/{picture}/image', [PictureController::class, 'updateImage']);
 
-    // User photos
+    // User photos - FIXED: removed duplicate route
     Route::get('/users/{user}/photos', [PictureController::class, 'getUserPhotos']);
 
     // Login history
@@ -44,16 +38,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // User management
     Route::apiResource('users', UserController::class)->except(['store']);
-    Route::get('/users/{user}/photos', [PictureController::class, 'getUserPhotos']);
 
-    // Login logs
-    Route::get('/users/{user}/login-history', [LoginLogController::class, 'getUserLoginHistory']);
-
-    // Routes inside this group are still protected by auth:sanctum
-});
-
-// Image retrieval routes (moved outside group, but still protected)
-Route::middleware('auth:sanctum')->group(function () {
+    // Image retrieval routes
     Route::get('pictures/{picture}/image', [PictureController::class, 'getImage'])->name('pictures.image');
     Route::get('pictures/{picture}/thumbnail', [PictureController::class, 'getThumbnail'])->name('pictures.thumbnail');
 });

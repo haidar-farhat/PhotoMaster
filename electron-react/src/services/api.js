@@ -2,11 +2,14 @@ import axios from 'axios';
 
 const API_URL = 'http://localhost:8000/api';
 
+// Update the axios instance configuration
 const api = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
-  }
+    'Accept': 'application/json'
+  },
+  withCredentials: true
 });
 
 // Add a request interceptor to include the token in all requests
@@ -53,15 +56,15 @@ export const logout = async () => {
   }
 };
 
+// Fixed getUserPhotos function - removed duplicate
 export const getUserPhotos = async (userId) => {
   try {
-    const response = await api.get(`/users/${userId}/photos`); // Correct endpoint
+    const response = await api.get(`/users/${userId}/photos`);
     console.log('Raw API response:', response);
-    // Make sure we're returning the correct data structure
-    return response.data || []; // Return data or empty array if undefined
+    // Handle both response formats
+    return response.data?.photos || response.data || [];
   } catch (error) {
     console.error('Error fetching photos:', error);
-    // Return empty array instead of throwing to prevent app crashes
     return [];
   }
 };
@@ -73,7 +76,6 @@ export const uploadPhoto = async (userId, filename, file) => {
     formData.append('filename', filename);
     formData.append('photo', file);
 
-    // Log the form data for debugging
     console.log('Uploading with data:', {
       userId,
       filename,
@@ -81,16 +83,14 @@ export const uploadPhoto = async (userId, filename, file) => {
       fileType: file.type
     });
 
-    const response = await axios.post(`${API_URL}/pictures`, formData, {
+    const response = await api.post(`/pictures`, formData, {
       headers: {
-        'Content-Type': 'multipart/form-data',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
+        'Content-Type': 'multipart/form-data'
       }
     });
 
     console.log('Upload response:', response.data);
     
-    // Check if the path in response matches expected format
     if (response.data && response.data.path) {
       console.log('Stored image path:', response.data.path);
     }
@@ -111,25 +111,27 @@ export const deletePhoto = async (photoId) => {
   }
 };
 
-export const replacePhoto = async (photoId, base64Image) => {
+// Fixed replacePhoto function to use the api instance
+export const replacePhoto = async (id, dataURL) => {
   try {
-    const response = await api.post(`/pictures/${photoId}/replace`, {
-      base64_image: base64Image
-    });
+    const response = await api.put(
+      `/pictures/${id}/image`,
+      { image: dataURL }
+    );
     return response.data;
   } catch (error) {
-    throw error.response.data;
+    console.error('Error replacing photo:', error);
+    throw error;
   }
 };
-
 
 // Fetch the full image data as a Blob
 export const getPhotoImage = async (photoId) => {
   try {
     const response = await api.get(`/pictures/${photoId}/image`, {
-      responseType: 'blob' // Important: expect binary data
+      responseType: 'blob'
     });
-    return response.data; // This will be a Blob
+    return response.data;
   } catch (error) {
     console.error('Error fetching full image:', error);
     throw error;
@@ -140,12 +142,11 @@ export const getPhotoImage = async (photoId) => {
 export const getPhotoThumbnail = async (photoId) => {
   try {
     const response = await api.get(`/pictures/${photoId}/thumbnail`, {
-      responseType: 'blob' // Important: expect binary data
+      responseType: 'blob'
     });
-    return response.data; // This will be a Blob
+    return response.data;
   } catch (error) {
     console.error('Error fetching thumbnail:', error);
-    // Don't throw here, allow fallback in component
     return null; 
   }
 };

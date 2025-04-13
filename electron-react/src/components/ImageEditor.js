@@ -22,7 +22,7 @@ import TextFieldsIcon from '@mui/icons-material/TextFields';
 import InvertColorsIcon from '@mui/icons-material/InvertColors';
 import SaveIcon from '@mui/icons-material/Save';
 import UndoIcon from '@mui/icons-material/Undo';
-import { replacePhoto } from '../services/api';
+import { getPhotoImage, replacePhoto } from '../services/api';
 
 // TabPanel component for the editor tabs
 function TabPanel(props) {
@@ -46,7 +46,8 @@ function TabPanel(props) {
 }
 
 // Add imageSrcUrl prop
-function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
+// Update the useEffect and add state for blob URL
+function ImageEditor({ open, onClose, photo, onSave }) {
   const canvasRef = useRef(null);
   const fabricCanvasRef = useRef(null);
   const [tabValue, setTabValue] = useState(0);
@@ -60,106 +61,86 @@ function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
   const [isSaving, setIsSaving] = useState(false);
   const [imageHistory, setImageHistory] = useState([]);
   const [isImageLoading, setIsImageLoading] = useState(false); // Add loading state for image
+  const [imageBlobUrl, setImageBlobUrl] = useState(null);
 
-  // Initialize the canvas when the component mounts or when the photo changes
+  // Update the useEffect for image loading
   useEffect(() => {
-    if (open && photo) {
-      // Initialize Fabric.js canvas
-      if (!fabricCanvasRef.current) {
-        fabricCanvasRef.current = new fabric.Canvas(canvasRef.current, {
-          width: 800,
-          height: 600,
-          backgroundColor: '#f0f0f0'
-        });
-      }
-
-      // Load the image
-      if (imageSrcUrl) {
-        setIsImageLoading(true);
-        loadImage();
-      }
-
-      // Clean up function
-      return () => {
-        if (fabricCanvasRef.current) {
-          fabricCanvasRef.current.dispose();
-          fabricCanvasRef.current = null;
-        }
-      };
-    }
-  }, [open, photo, imageSrcUrl]); // Keep imageSrcUrl in dependency array
-
-  // Load the image into the canvas using the provided URL
-  const loadImage = () => {
-    // Use imageSrcUrl if available, otherwise return (or handle error)
-    if (!imageSrcUrl || !fabricCanvasRef.current) {
-      console.error("ImageEditor: imageSrcUrl not provided or canvas not ready.");
-      setIsImageLoading(false);
-      return; 
-    }
-
-    console.log("Loading image from URL:", imageSrcUrl);
+    let currentBlobUrl = null;
     
-    // Add cache buster to URL
-    const cacheBusterUrl = `${imageSrcUrl}${imageSrcUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
+    const fetchImage = async () => {
+      if (open && photo) {
+        setIsImageLoading(true);
+        try {
+          const blob = await getPhotoImage(photo.id);
+          const url = URL.createObjectURL(blob);
+          currentBlobUrl = url;
+          setImageBlobUrl(url);
+          loadImage(url);  // Pass the URL directly
+        } catch (error) {
+          console.error('Error loading image:', error);
+        } finally {
+          setIsImageLoading(false);
+        }
+      }
+    };
+
+    fetchImage();
+
+    return () => {
+      if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+      }
+      if (fabricCanvasRef.current) {
+        fabricCanvasRef.current.dispose();
+      }
+    };
+  }, [open, photo]);
+
+  // Update loadImage to accept URL parameter
+  const loadImage = (url) => {
+    if (!url || !fabricCanvasRef.current) return;
     
     const img = new Image();
-    img.crossOrigin = 'anonymous'; // Important for canvas operations if image is from another origin
-    
+    img.crossOrigin = 'anonymous';
+    img.src = url;
+
     img.onload = () => {
       try {
         console.log("Image loaded successfully, dimensions:", img.width, "x", img.height);
         
-        // Create a fabric image object
+        // Create fabric image object
         const fabricImage = new fabric.Image(img, {
           selectable: false,
           evented: false,
           centeredScaling: true
         });
 
-        // Clear the canvas
+        // Clear canvas and add image
         fabricCanvasRef.current.clear();
-
-        // Calculate the scale to fit the image within the canvas
         const scale = Math.min(
           fabricCanvasRef.current.width / img.width,
           fabricCanvasRef.current.height / img.height
         );
-
-        // Set the image dimensions
         fabricImage.scaleX = scale;
         fabricImage.scaleY = scale;
-
-        // Center the image on the canvas
         fabricCanvasRef.current.centerObject(fabricImage);
-
-        // Add the image to the canvas
         fabricCanvasRef.current.add(fabricImage);
         fabricCanvasRef.current.renderAll();
 
-        // Store the original image for history
+        // Update state
         setOriginalImage(fabricImage);
         setImageHistory([fabricImage]);
-
-        // Reset state related to previous image if necessary
-        setRotationAngle(0);
-        setIsGrayscale(false);
-        setWatermarkText('');
-        
         setIsImageLoading(false);
-      } catch (fabricError) {
-        console.error('Error creating Fabric image:', fabricError);
+      } catch (error) {
+        console.error('Error creating Fabric image:', error);
         setIsImageLoading(false);
       }
     };
     
     img.onerror = (error) => {
-      console.error('Error loading image source:', imageSrcUrl, error);
+      console.error('Error loading image:', error);
       setIsImageLoading(false);
     };
-    
-    // Set the source after setting up event handlers
-    img.src = cacheBusterUrl;  // Use modified URL with cache buster
   };
 
   // Handle tab change
@@ -356,8 +337,13 @@ function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
         quality: 0.8
       });
 
-      // Send the image to the backend
-      await replacePhoto(photo.id, dataURL);
+      // Send the image to the backend with proper headers
+      await replacePhoto(photo.id, dataURL, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` // Add if using auth
+        }
+      });
 
       // Call the onSave callback
       if (onSave) {
@@ -368,6 +354,10 @@ function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
       onClose();
     } catch (error) {
       console.error('Error saving edited image:', error);
+      // Add error handling for CORS issues
+      if (error.response?.status === 403 || error.response?.status === 401) {
+        alert('Session expired. Please log in again.');
+      }
     } finally {
       setIsSaving(false);
     }
@@ -455,15 +445,16 @@ function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
               overflow: 'hidden'
             }}
           >
-            // In the return statement's canvas element:
             {/* Canvas element with fixed dimensions */}
-                        <canvas 
-                          ref={canvasRef} 
-                          style={{
-                            width: '800px',
-                            height: '600px'
-                          }}
-                        />
+            <canvas 
+              ref={canvasRef} 
+              style={{
+                width: '800px',
+                height: '600px'
+              }}
+              width={800}
+              height={600}
+            />
             
             {(isSaving || isImageLoading) && (
               <Box 
