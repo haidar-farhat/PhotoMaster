@@ -59,6 +59,7 @@ function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
   const [isGrayscale, setIsGrayscale] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [imageHistory, setImageHistory] = useState([]);
+  const [isImageLoading, setIsImageLoading] = useState(false); // Add loading state for image
 
   // Initialize the canvas when the component mounts or when the photo changes
   useEffect(() => {
@@ -73,7 +74,10 @@ function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
       }
 
       // Load the image
-      loadImage();
+      if (imageSrcUrl) {
+        setIsImageLoading(true);
+        loadImage();
+      }
 
       // Clean up function
       return () => {
@@ -83,25 +87,28 @@ function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
         }
       };
     }
-  }, [open, photo]);
+  }, [open, photo, imageSrcUrl]); // Keep imageSrcUrl in dependency array
 
   // Load the image into the canvas using the provided URL
   const loadImage = () => {
     // Use imageSrcUrl if available, otherwise return (or handle error)
     if (!imageSrcUrl || !fabricCanvasRef.current) {
       console.error("ImageEditor: imageSrcUrl not provided or canvas not ready.");
-      // Optionally display an error message in the editor dialog
+      setIsImageLoading(false);
       return; 
     }
 
+    console.log("Loading image from URL:", imageSrcUrl);
+    
     const img = new Image();
     img.crossOrigin = 'anonymous'; // Important for canvas operations if image is from another origin
-    img.src = imageSrcUrl;
-
+    
     img.onload = () => {
       try {
-         // Create a fabric image object
-         const fabricImage = new fabric.Image(img, {
+        console.log("Image loaded successfully, dimensions:", img.width, "x", img.height);
+        
+        // Create a fabric image object
+        const fabricImage = new fabric.Image(img, {
           selectable: false,
           evented: false,
           centeredScaling: true
@@ -131,23 +138,25 @@ function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
         setOriginalImage(fabricImage);
         setImageHistory([fabricImage]);
 
-         // Revoke the object URL if it was created outside (though maybe not necessary if passed from PhotoCard state)
-         // URL.revokeObjectURL(url); // Let PhotoCard manage its own object URLs
-
-         // Reset state related to previous image if necessary
-         setRotationAngle(0);
-         setIsGrayscale(false);
-         setWatermarkText('');
-         // etc.
-
+        // Reset state related to previous image if necessary
+        setRotationAngle(0);
+        setIsGrayscale(false);
+        setWatermarkText('');
+        
+        setIsImageLoading(false);
       } catch (fabricError) {
-         console.error('Error creating Fabric image:', fabricError);
+        console.error('Error creating Fabric image:', fabricError);
+        setIsImageLoading(false);
       }
     };
-    img.onerror = () => {
-      console.error('Error loading image source:', imageSrcUrl);
-      // Handle image load error (e.g., show message)
+    
+    img.onerror = (error) => {
+      console.error('Error loading image source:', imageSrcUrl, error);
+      setIsImageLoading(false);
     };
+    
+    // Set the source after setting up event handlers
+    img.src = imageSrcUrl;
   };
 
   // Handle tab change
@@ -445,7 +454,7 @@ function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
           >
             <canvas ref={canvasRef} />
             
-            {isSaving && (
+            {(isSaving || isImageLoading) && (
               <Box 
                 sx={{ 
                   position: 'absolute', 
@@ -460,6 +469,9 @@ function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
                 }}
               >
                 <CircularProgress color="primary" />
+                <Typography variant="body2" color="white" sx={{ ml: 2 }}>
+                  {isSaving ? 'Saving...' : 'Loading image...'}
+                </Typography>
               </Box>
             )}
           </Box>

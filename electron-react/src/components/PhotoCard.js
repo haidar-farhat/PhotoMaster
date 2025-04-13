@@ -105,36 +105,44 @@ const closePreviewDialog = () => {
   // }
 };
 
-// Updated handleEditClick to ensure full-res image is loaded first
+// Refined handleEditClick to ensure full-res image URL is ready before opening editor
 const handleEditClick = async () => {
-  // If preview image isn't loaded yet, load it
-  if (previewImgSrc === PLACEHOLDER_IMAGE || previewImgSrc !== imgSrc) {
-    setLoadingPreview(true); // Show loading indicator briefly if needed
-    let fullResObjectUrl = null;
+  let urlToOpen = previewImgSrc; // Start with current preview URL
+
+  // If preview image isn't loaded or is potentially just the thumbnail URL, load the full res
+  // (Check against PLACEHOLDER and potentially imgSrc if thumbnail might be same as preview initially)
+  if (urlToOpen === PLACEHOLDER_IMAGE || urlToOpen === imgSrc) {
+    setLoadingPreview(true); // Indicate loading if needed
     try {
       const blob = await getPhotoImage(photo.id);
       if (blob) {
-        fullResObjectUrl = URL.createObjectURL(blob);
-        // Clean up previous preview URL if it exists and is different
-        if (previewImgSrc && previewImgSrc !== PLACEHOLDER_IMAGE && previewImgSrc !== fullResObjectUrl) {
+        const newUrl = URL.createObjectURL(blob);
+        // Clean up old preview URL if necessary and different
+        if (previewImgSrc && previewImgSrc !== PLACEHOLDER_IMAGE && previewImgSrc !== newUrl) {
            URL.revokeObjectURL(previewImgSrc);
         }
-        setPreviewImgSrc(fullResObjectUrl); // Set the state for the editor prop
-        setOpenEditor(true); // Open editor *after* setting state
+        setPreviewImgSrc(newUrl); // Update state for future use and for the prop
+        urlToOpen = newUrl; // Use the newly fetched URL for the check below
       } else {
-         // Handle error or use thumbnail? For editor, probably best to show error.
-         console.error('Failed to load full image for editing.');
-         // Optionally set an error state to show a message
+        console.error('Failed to load full image blob for editing.');
+        setLoadingPreview(false);
+        return; // Don't open editor if image failed to load
       }
     } catch (error) {
       console.error('Error fetching full image for editing:', error);
-      // Optionally set an error state
+      setLoadingPreview(false);
+      return; // Don't open editor if fetch failed
     } finally {
       setLoadingPreview(false);
     }
+  }
+
+  // Ensure we have a valid URL (not placeholder) before opening
+  if (urlToOpen && urlToOpen !== PLACEHOLDER_IMAGE) {
+    setOpenEditor(true); // Now open the editor, previewImgSrc state should be updated
   } else {
-    // If preview image is already loaded, just open the editor
-    setOpenEditor(true);
+    console.error("Cannot open editor without a valid image source.");
+    // Optionally show an error message to the user
   }
 };
 
