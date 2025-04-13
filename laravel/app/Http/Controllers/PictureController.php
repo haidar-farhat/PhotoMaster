@@ -28,18 +28,14 @@ class PictureController extends Controller
     {
         $data = $request->validate([
             'user_id' => 'required|exists:users,id',
-            'base64_image' => ['required', new Base64Image],
-            'filename' => 'required|string|max:255'
+            'filename' => 'required|string|max:255',
+            'photo' => 'required|file|image|max:10240', // 10MB max
         ]);
 
         try {
             Log::info('Processing image upload', ['user_id' => $data['user_id'], 'filename' => $data['filename']]);
 
-            $imageData = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $data['base64_image']));
-            $path = 'images/' . $data['user_id'] . '/' . $data['filename'];
-
-            Storage::disk('public')->makeDirectory('images/' . $data['user_id']);
-            Storage::disk('public')->put($path, $imageData);
+            $path = $request->file('photo')->store('images/' . $data['user_id'], 'public');
 
             $picture = $this->pictureService->create([
                 'user_id' => $data['user_id'],

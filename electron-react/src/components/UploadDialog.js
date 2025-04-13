@@ -13,6 +13,12 @@ function UploadDialog({ open, onClose, onUpload }) {
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
 
+    // Check file size
+    if (selectedFile.size > 10 * 1024 * 1024) { // 10MB limit
+      setError('File is too large. Please select an image under 10MB.');
+      return;
+    }
+
     // Auto-fill filename from file
     if (!filename) {
       setFilename(selectedFile.name);
@@ -20,22 +26,16 @@ function UploadDialog({ open, onClose, onUpload }) {
 
     setFile(selectedFile);
 
-    // Create preview and prepare base64 data
+    // Create preview only
     const reader = new FileReader();
     reader.onload = () => {
-      // The full base64 string with data URI prefix
-      const fullBase64 = reader.result;
-      // Extract only the base64 data part (remove the data:image/jpeg;base64, prefix)
-      const base64Data = fullBase64.split(',')[1];
-      setPreview(fullBase64);
-      // Store the clean base64 data
-      setBase64Image(base64Data);
+      setPreview(reader.result);
     };
     reader.readAsDataURL(selectedFile);
   };
 
   const handleSubmit = async () => {
-    if (!filename || !file || !base64Image) {
+    if (!filename || !file) {
       setError('Please provide a filename and select an image');
       return;
     }
@@ -44,16 +44,16 @@ function UploadDialog({ open, onClose, onUpload }) {
     setError('');
 
     try {
-      // Pass the clean base64 data to the upload function
-      const success = await onUpload(filename, base64Image);
+      // Pass the File object directly instead of base64
+      const success = await onUpload(filename, file);
       if (success) {
         handleClose();
       } else {
         setError('Failed to upload image. Please try again.');
       }
     } catch (err) {
-      setError('An error occurred during upload');
-      console.error(err);
+      setError('An error occurred during upload: ' + (err.message || JSON.stringify(err)));
+      console.error('Upload error:', err);
     } finally {
       setLoading(false);
     }

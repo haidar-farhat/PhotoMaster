@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Typography, Grid, Button, Box, Paper, CircularProgress, Alert } from '@mui/material';
 import { getUserPhotos, uploadPhoto, deletePhoto } from '../services/api';
-import PhotoCard from './PhotoCard';
+import PhotoGallery from './PhotoGallery';
 import UploadDialog from './UploadDialog';
 
 function Dashboard({ user }) {
@@ -11,7 +11,9 @@ function Dashboard({ user }) {
   const [openUploadDialog, setOpenUploadDialog] = useState(false);
 
   useEffect(() => {
-    fetchPhotos();
+    if (user) {
+      fetchPhotos();
+    }
   }, [user]);
 
   const fetchPhotos = async () => {
@@ -19,11 +21,17 @@ function Dashboard({ user }) {
     
     setLoading(true);
     try {
-      const data = await getUserPhotos(user.id);
-      setPhotos(data);
+      const response = await getUserPhotos(user.id);
+      console.log('API response:', response); // Log the full response
+      
+      // Check if response exists and has data property
+      const data = response && response.data ? response.data : response;
+      console.log('Processed photos data:', data);
+      
+      setPhotos(Array.isArray(data) ? data : []);
     } catch (err) {
       setError('Failed to load photos. Please try again later.');
-      console.error(err);
+      console.error('Error fetching photos:', err);
     } finally {
       setLoading(false);
     }
@@ -81,13 +89,7 @@ function Dashboard({ user }) {
           </Typography>
         </Paper>
       ) : (
-        <Grid container spacing={3}>
-          {photos.map((photo) => (
-            <Grid item xs={12} sm={6} md={4} key={photo.id}>
-              <PhotoCard photo={photo} onDelete={handleDelete} />
-            </Grid>
-          ))}
-        </Grid>
+        <PhotoGallery photos={photos} onDelete={handleDelete} />
       )}
 
       <UploadDialog 
