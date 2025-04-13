@@ -22,33 +22,36 @@ function Dashboard({ user }) {
     setLoading(true);
     try {
       const response = await getUserPhotos(user.id);
-      console.log('API response:', response); // Log the full response
+      console.log('Photo data structure:', response);
       
-      // Check if response exists and has data property
-      const data = response && response.data ? response.data : response;
-      console.log('Processed photos data:', data);
-      
-      setPhotos(Array.isArray(data) ? data : []);
+      // Properly handle response data
+      const data = Array.isArray(response) ? response : [];
+      setPhotos(data);
     } catch (err) {
       setError('Failed to load photos. Please try again later.');
-      console.error('Error fetching photos:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleUpload = async (filename, base64Image) => {
+  const handleUpload = async (filename, file) => {
     try {
-      // Add some logging to debug
-      console.log('Uploading image:', filename);
-      console.log('Base64 length:', base64Image.length);
+      console.log('Starting upload for:', filename);
+      const newPhoto = await uploadPhoto(user.id, filename, file);
+      console.log('Upload successful, received:', newPhoto);
       
-      const newPhoto = await uploadPhoto(user.id, filename, base64Image);
-      setPhotos([...photos, newPhoto]);
-      return true;
+      // Verify newPhoto has expected properties
+      if (newPhoto && newPhoto.id) {
+        setPhotos([...photos, newPhoto]);
+        return true; // Indicate success to the UploadDialog
+      } else {
+        console.error('Upload response missing expected data:', newPhoto);
+        return false;
+      }
     } catch (err) {
       console.error('Upload error:', err);
-      return false;
+      setError(`Failed to upload: ${err.message || 'Unknown error'}`);
+      return false; // Indicate failure to the UploadDialog
     }
   };
 

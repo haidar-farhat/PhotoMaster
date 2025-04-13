@@ -66,50 +66,15 @@ export const getUserPhotos = async (userId) => {
   }
 };
 
-export const uploadPhoto = async (userId, filename, fileOrBase64) => {
+export const uploadPhoto = async (userId, filename, file) => {
   try {
     // Create a FormData object for file upload
     const formData = new FormData();
     formData.append('user_id', userId);
     formData.append('filename', filename);
+    formData.append('photo', file);
     
-    // Check if we're dealing with a File object or base64 string
-    if (fileOrBase64 instanceof File) {
-      // If it's already a File object, use it directly
-      formData.append('photo', fileOrBase64);
-      console.log('Uploading file directly:', filename);
-    } else if (typeof fileOrBase64 === 'string') {
-      // Convert base64 to File object
-      const byteString = fileOrBase64.split(',')[1] ? 
-        atob(fileOrBase64.split(',')[1]) : 
-        atob(fileOrBase64);
-        
-      // Determine mime type from the data URI
-      let mimeType = 'image/png'; // Default
-      if (fileOrBase64.startsWith('data:')) {
-        mimeType = fileOrBase64.split(',')[0].split(':')[1].split(';')[0];
-      } else {
-        // Guess from filename
-        const extension = filename.split('.').pop().toLowerCase();
-        if (extension === 'jpg' || extension === 'jpeg') mimeType = 'image/jpeg';
-        else if (extension === 'gif') mimeType = 'image/gif';
-      }
-      
-      // Create array buffer and blob
-      const ab = new ArrayBuffer(byteString.length);
-      const ia = new Uint8Array(ab);
-      for (let i = 0; i < byteString.length; i++) {
-        ia[i] = byteString.charCodeAt(i);
-      }
-      const blob = new Blob([ab], { type: mimeType });
-      
-      // Create File object
-      const file = new File([blob], filename, { type: mimeType });
-      formData.append('photo', file);
-      console.log('Converted base64 to file and uploading:', filename);
-    } else {
-      throw new Error('Invalid input: expected File object or base64 string');
-    }
+    console.log('Uploading file:', filename);
     
     // Use axios directly with FormData
     const response = await axios.post(`${API_URL}/pictures`, formData, {
@@ -117,7 +82,7 @@ export const uploadPhoto = async (userId, filename, fileOrBase64) => {
         'Content-Type': 'multipart/form-data',
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       },
-      timeout: 120000 // 2 minutes timeout for large uploads
+      timeout: 60000 // 1 minute timeout for uploads
     });
     
     return response.data;
