@@ -45,8 +45,6 @@ function TabPanel(props) {
   );
 }
 
-// Add imageSrcUrl prop
-// Update the useEffect and add state for blob URL
 function ImageEditor({ open, onClose, photo, onSave }) {
   const canvasRef = useRef(null);
   const fabricCanvasRef = useRef(null);
@@ -60,76 +58,154 @@ function ImageEditor({ open, onClose, photo, onSave }) {
   const [isGrayscale, setIsGrayscale] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [imageHistory, setImageHistory] = useState([]);
-  const [isImageLoading, setIsImageLoading] = useState(false); // Add loading state for image
+  const [isImageLoading, setIsImageLoading] = useState(false);
   const [imageBlobUrl, setImageBlobUrl] = useState(null);
 
-  // Update the useEffect for image loading
+  // Save the current state to history
+  const saveToHistory = () => {
+    if (!fabricCanvasRef.current) return;
+    const json = fabricCanvasRef.current.toJSON();
+    setImageHistory(prev => [...prev, json]);
+  };
+
+  // Initialize canvas when component mounts or dialog opens
+  useEffect(() => {
+    if (open && canvasRef.current) {
+      // Dispose of any existing canvas to prevent memory leaks
+      if (fabricCanvasRef.current) {
+        fabricCanvasRef.current.dispose();
+      }
+      
+      // Initialize the Fabric.js canvas with fixed dimensions
+      fabricCanvasRef.current = new fabric.Canvas(canvasRef.current, {
+        width: 800,
+        height: 600,
+        backgroundColor: '#f0f0f0',
+        preserveObjectStacking: true
+      });
+      
+      // Add event listener for object modifications to save history
+      fabricCanvasRef.current.on('object:modified', () => {
+        saveToHistory();
+      });
+    }
+    
+    return () => {
+      // Clean up canvas when component unmounts or dialog closes
+      if (fabricCanvasRef.current) {
+        fabricCanvasRef.current.dispose();
+        fabricCanvasRef.current = null;
+      }
+    };
+  }, [open]);
+
+  // Load image when photo changes or canvas is initialized
   useEffect(() => {
     let currentBlobUrl = null;
     
     const fetchImage = async () => {
-      if (open && photo) {
+      if (open && photo && fabricCanvasRef.current) {
         setIsImageLoading(true);
         try {
-          const blob = await getPhotoImage(photo.id);
-          const url = URL.createObjectURL(blob);
-          currentBlobUrl = url;
-          setImageBlobUrl(url);
-          loadImage(url);  // Pass the URL directly
+          // Use XHR instead of the API service
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', `http://localhost:8000/api/pictures/${photo.id}/image`, true);
+          xhr.responseType = 'blob';
+          xhr.withCredentials = true;
+          
+          // Add authorization header if token exists
+          const token = localStorage.getItem('token');
+          if (token) {
+            xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+          }
+          
+          xhr.onload = function() {
+            if (this.status === 200) {
+              const blob = this.response;
+              console.log('Image blob received via XHR:', blob.type, blob.size);
+              const url = URL.createObjectURL(blob);
+              currentBlobUrl = url;
+              setImageBlobUrl(url);
+              loadImage(url);
+            } else {
+              console.error('XHR Error:', this.status);
+              setIsImageLoading(false);
+            }
+          };
+          
+          xhr.onerror = function() {
+            console.error('XHR Request failed');
+            setIsImageLoading(false);
+          };
+          
+          xhr.send();
         } catch (error) {
-          console.error('Error loading image:', error);
-        } finally {
+          console.error('Error setting up XHR request:', error);
           setIsImageLoading(false);
         }
       }
     };
-
-    fetchImage();
-
+  
+    if (open && photo && fabricCanvasRef.current) {
+      fetchImage();
+    }
+  
     return () => {
       if (currentBlobUrl) {
         URL.revokeObjectURL(currentBlobUrl);
       }
-      if (fabricCanvasRef.current) {
-        fabricCanvasRef.current.dispose();
-      }
     };
   }, [open, photo]);
 
-  // Update loadImage to accept URL parameter
+  // Load image into canvas
   const loadImage = (url) => {
-    if (!url || !fabricCanvasRef.current) return;
+    if (!url || !fabricCanvasRef.current) {
+      console.error('Cannot load image: Canvas or URL not available');
+      return;
+    }
     
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.src = url;
-
+    
     img.onload = () => {
       try {
         console.log("Image loaded successfully, dimensions:", img.width, "x", img.height);
+        
+        // Clear any existing objects
+        fabricCanvasRef.current.clear();
         
         // Create fabric image object
         const fabricImage = new fabric.Image(img, {
           selectable: false,
           evented: false,
-          centeredScaling: true
+          centeredScaling: true,
+          originX: 'center',
+          originY: 'center'
         });
-
-        // Clear canvas and add image
-        fabricCanvasRef.current.clear();
+  
+        // Calculate proper scaling to fit the canvas
+        const canvasWidth = fabricCanvasRef.current.width;
+        const canvasHeight = fabricCanvasRef.current.height;
         const scale = Math.min(
-          fabricCanvasRef.current.width / img.width,
-          fabricCanvasRef.current.height / img.height
-        );
-        fabricImage.scaleX = scale;
-        fabricImage.scaleY = scale;
-        fabricCanvasRef.current.centerObject(fabricImage);
+          canvasWidth / img.width,
+          canvasHeight / img.height
+        ) * 0.9; // 90% of max size to leave some margin
+        
+        fabricImage.scale(scale);
+        
+        // Add and center the image
         fabricCanvasRef.current.add(fabricImage);
+        fabricCanvasRef.current.centerObject(fabricImage);
         fabricCanvasRef.current.renderAll();
-
+  
+        // Initialize filters array if not present
+        if (!fabricImage.filters) {
+          fabricImage.filters = [];
+        }
+  
         // Update state
         setOriginalImage(fabricImage);
-        setImageHistory([fabricImage]);
+        setImageHistory([fabricCanvasRef.current.toJSON()]);
         setIsImageLoading(false);
       } catch (error) {
         console.error('Error creating Fabric image:', error);
@@ -141,6 +217,8 @@ function ImageEditor({ open, onClose, photo, onSave }) {
       console.error('Error loading image:', error);
       setIsImageLoading(false);
     };
+    
+    img.src = url;
   };
 
   // Handle tab change
@@ -338,12 +416,7 @@ function ImageEditor({ open, onClose, photo, onSave }) {
       });
 
       // Send the image to the backend with proper headers
-      await replacePhoto(photo.id, dataURL, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}` // Add if using auth
-        }
-      });
+      await replacePhoto(photo.id, dataURL);
 
       // Call the onSave callback
       if (onSave) {
@@ -361,17 +434,6 @@ function ImageEditor({ open, onClose, photo, onSave }) {
     } finally {
       setIsSaving(false);
     }
-  };
-
-  // Save the current state to history
-  const saveToHistory = () => {
-    if (!fabricCanvasRef.current) return;
-
-    // Create a JSON representation of the canvas
-    const json = fabricCanvasRef.current.toJSON();
-    
-    // Add to history
-    setImageHistory(prev => [...prev, json]);
   };
 
   // Undo the last action
