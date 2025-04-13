@@ -48,6 +48,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Login logs
     Route::get('/users/{user}/login-history', [LoginLogController::class, 'getUserLoginHistory']);
+
+    // Image retrieval routes
+    Route::get('pictures/{picture}/image', [PictureController::class, 'getImage']);
+    Route::get('pictures/{picture}/thumbnail', [PictureController::class, 'getThumbnail']);
 });
 
 // Catch-all for undefined routes

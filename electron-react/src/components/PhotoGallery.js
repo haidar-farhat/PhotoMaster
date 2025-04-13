@@ -1,82 +1,30 @@
 import React from 'react';
-import { Grid, Card, CardMedia, CardContent, Typography, CardActions, IconButton } from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete';
-import DownloadIcon from '@mui/icons-material/Download';
-
-// Add PhotoCard as a separate component
-const PhotoCard = ({ photo, onDelete, handleDownload }) => {
-  // In the PhotoCard component
-  const [imgSrc, setImgSrc] = React.useState(() => {
-    console.log('Photo data:', photo);
-    if (photo?.url?.startsWith('http')) return photo.url;
-    if (photo?.path) return `http://localhost:8000/storage/${photo.path}?${Date.now()}`;
-    return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
-  });
-
-  const errorRef = React.useRef(false);
-
-  return (
-    <Grid item xs={12} sm={6} md={4} lg={3} key={photo.id}>
-      <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-        <CardMedia
-          component="img"
-          height="200"
-          src={imgSrc}
-          alt={photo.filename}
-          onError={() => {
-            if (!errorRef.current) {
-              errorRef.current = true;
-              setImgSrc('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
-            }
-          }}
-          sx={{ objectFit: 'cover' }}
-        />
-        <CardContent sx={{ flexGrow: 1 }}>
-          <Typography variant="body2" noWrap title={photo.filename}>
-            {photo.filename}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {new Date(photo.created_at).toLocaleDateString()}
-          </Typography>
-        </CardContent>
-        <CardActions>
-          <IconButton 
-            size="small" 
-            color="primary" 
-            onClick={() => handleDownload(photo)}
-            title="Download"
-          >
-            <DownloadIcon />
-          </IconButton>
-          <IconButton 
-            size="small" 
-            color="error" 
-            onClick={() => onDelete(photo.id)}
-            title="Delete"
-          >
-            <DeleteIcon />
-          </IconButton>
-        </CardActions>
-      </Card>
-    </Grid>
-  );
-};
+import { Grid } from '@mui/material';
+import PhotoCard from './PhotoCard';
 
 function PhotoGallery({ photos, onDelete }) {
   // Image URL construction
   const getImageUrl = (photo) => {
+    // Add debugging
+    console.log('Processing photo:', photo);
+    
     // Check if the photo has a complete URL already
     if (photo.url && photo.url.startsWith('http')) {
+      console.log('Using provided URL:', photo.url);
       return photo.url;
     }
     
     // Check if photo has a path property
     if (photo.path) {
-      return `http://localhost:8000/storage/${photo.path}`;
+      const url = `http://localhost:8000/storage/${photo.path}`;
+      console.log('Generated URL from path:', url);
+      return url;
     }
     
     // Fallback to the old method
-    return `http://localhost:8000/storage/images/${photo.user_id}/${encodeURIComponent(photo.filename)}`;
+    const fallbackUrl = `http://localhost:8000/storage/users/${photo.user_id}/${encodeURIComponent(photo.filename)}`;
+    console.log('Using fallback URL:', fallbackUrl);
+    return fallbackUrl;
   };
 
   // Function to handle image download
@@ -91,14 +39,22 @@ function PhotoGallery({ photos, onDelete }) {
 
   return (
     <Grid container spacing={2}>
-      {photos.map((photo) => (
-        <PhotoCard 
-          key={photo.id}
-          photo={photo}
-          onDelete={onDelete}
-          handleDownload={handleDownload}
-        />
-      ))}
+      {photos.map((photo) => {
+        // Prepare photo with correct URL for display
+        const photoWithUrl = {
+          ...photo,
+          displayUrl: getImageUrl(photo)
+        };
+        
+        return (
+          <PhotoCard 
+            key={photo.id}
+            photo={photoWithUrl}
+            onDelete={onDelete}
+            handleDownload={handleDownload}
+          />
+        );
+      })}
     </Grid>
   );
 }

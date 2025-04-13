@@ -48,7 +48,9 @@ class PictureController extends Controller
             // Generate optimized thumbnail
             $thumbnailPath = $this->createThumbnail($file, $userFolder, $uniqueFilename);
 
-            Log::info('File stored at: ' . storage_path('app/public/' . $path));
+            // Make sure URLs are correctly generated
+            $url = url('storage/' . $path);
+            $thumbnailUrl = $thumbnailPath ? url('storage/' . $thumbnailPath) : null;
 
             $picture = $this->pictureService->create([
                 'user_id' => $data['user_id'],
@@ -57,8 +59,8 @@ class PictureController extends Controller
                 'thumbnail_path' => $thumbnailPath,
                 'file_size' => $file->getSize(),
                 'mime_type' => $file->getMimeType(),
-                'url' => asset('storage/' . $path),
-                'thumbnail_url' => asset('storage/' . $thumbnailPath)
+                'url' => $url,
+                'thumbnail_url' => $thumbnailUrl
             ]);
 
             // Add error handling for empty response
@@ -176,5 +178,43 @@ class PictureController extends Controller
             Log::error('Thumbnail creation failed: ' . $e->getMessage());
             return null;
         }
+    }
+
+    /**
+     * Get the image file for a specific picture
+     */
+    public function getImage(Picture $picture)
+    {
+        // Check if file exists in storage
+        $path = storage_path('app/public/' . $picture->path);
+
+        if (!file_exists($path)) {
+            return response()->json(['error' => 'Image not found'], 404);
+        }
+
+        // Return the file with proper content type
+        return response()->file($path);
+    }
+
+    /**
+     * Get the thumbnail image for a specific picture
+     */
+    public function getThumbnail(Picture $picture)
+    {
+        // If no thumbnail, return the original image
+        if (!$picture->thumbnail_path) {
+            return $this->getImage($picture);
+        }
+
+        // Check if thumbnail exists
+        $path = storage_path('app/public/' . $picture->thumbnail_path);
+
+        if (!file_exists($path)) {
+            // Fallback to original image
+            return $this->getImage($picture);
+        }
+
+        // Return the file with proper content type
+        return response()->file($path);
     }
 }
