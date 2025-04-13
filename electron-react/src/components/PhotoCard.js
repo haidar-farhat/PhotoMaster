@@ -3,6 +3,8 @@ import { Grid, Card, CardMedia, CardContent, Typography, CardActions, IconButton
 import DeleteIcon from '@mui/icons-material/Delete';
 import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import DownloadIcon from '@mui/icons-material/Download';
+import EditIcon from '@mui/icons-material/Edit';
+import ImageEditor from './ImageEditor';
 import { getPhotoThumbnail, getPhotoImage } from '../services/api'; // Import new functions
 
 const PLACEHOLDER_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
@@ -14,6 +16,7 @@ function PhotoCard({ photo, onDelete, handleDownload }) {
   const [loading, setLoading] = useState(true);
   const [previewImgSrc, setPreviewImgSrc] = useState(PLACEHOLDER_IMAGE); // For full-res preview
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [openEditor, setOpenEditor] = useState(false);
 
   // Fetch thumbnail when photo changes
   useEffect(() => {
@@ -115,8 +118,28 @@ return (
             src={imgSrc}
             alt={photo.filename}
             sx={{ objectFit: 'cover', cursor: 'pointer', width: '100%' }}
-            onClick={openPreviewDialog} // Use the new handler
+            onClick={openPreviewDialog}
           />
+        )}
+        {/* Edit button positioned over the image */}
+        {!loading && (
+          <IconButton 
+            size="small" 
+            color="primary"
+            onClick={() => setOpenEditor(true)}
+            title="Edit"
+            sx={{ 
+              position: 'absolute', 
+              top: 8, 
+              right: 8, 
+              backgroundColor: 'rgba(255, 255, 255, 0.7)', // Semi-transparent background
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.9)', // More opaque on hover
+              }
+            }}
+          >
+            <EditIcon />
+          </IconButton>
         )}
       </Box>
         
@@ -141,11 +164,12 @@ return (
           <IconButton 
             size="small" 
             color="primary"
-            onClick={openPreviewDialog} // Use the new handler
+            onClick={openPreviewDialog}
             title="View"
           >
             <ZoomInIcon />
           </IconButton>
+          {/* Removed Edit button from here */}
           <IconButton 
             size="small" 
             color="error" 
@@ -181,6 +205,22 @@ return (
           <Button onClick={handleDelete} color="error">Delete</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Image Editor Dialog */}
+      <ImageEditor 
+        open={openEditor} 
+        onClose={() => setOpenEditor(false)} 
+        photo={photo}
+        onSave={() => {
+          // Refresh the image after editing
+          setImgSrc(PLACEHOLDER_IMAGE);
+          setPreviewImgSrc(PLACEHOLDER_IMAGE);
+          setLoading(true);
+          // Force re-fetch of the image by triggering the useEffect
+          const timestamp = new Date().getTime();
+          photo.timestamp = timestamp;
+        }}
+      />
     </Grid>
   );
 }

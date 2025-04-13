@@ -4,9 +4,10 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Response;
+use Illuminate\Support\Facades\Response as ResponseFacade;
 use App\Models\User;
 use App\Models\Picture;
 use App\Services\PictureService;
@@ -208,15 +209,21 @@ class PictureController extends Controller
         // Get the full path from the storage disk and return the file response
         $absolutePath = storage_path('app/public/' . $storagePath);
 
-        if (!file_exists($absolutePath)) {
-            Log::error("Image file not found: {$absolutePath}");
+        // Check using Storage facade to ensure path consistency
+        if (!Storage::disk('public')->exists($storagePath)) {
+            Log::error("Image file not found in storage: {$storagePath}");
+            Log::error("Full storage path: " . storage_path('app/public/' . $storagePath));
             throw new NotFoundHttpException('Image not found');
         }
 
-        return Response::file($absolutePath, [
-            'Content-Type' => mime_content_type($absolutePath),
-            'Cache-Control' => 'public, max-age=31536000'
-        ]);
+        return response(
+            Storage::disk('public')->get($storagePath),
+            200,
+            [
+                'Content-Type' => $picture->mime_type ?? 'application/octet-stream',
+                'Cache-Control' => 'public, max-age=31536000'
+            ]
+        );
     }
 
     /**
@@ -245,14 +252,20 @@ class PictureController extends Controller
         // Get the full path from the storage disk and return the file response
         $absolutePath = storage_path('app/public/' . $storagePath);
 
-        if (!file_exists($absolutePath)) {
-            Log::error("Thumbnail not found: {$absolutePath}");
+        // Check using Storage facade to ensure path consistency
+        if (!Storage::disk('public')->exists($storagePath)) {
+            Log::error("Thumbnail not found in storage: {$storagePath}");
+            Log::error("Full storage path: " . storage_path('app/public/' . $storagePath));
             throw new NotFoundHttpException('Thumbnail not found');
         }
 
-        return Response::file($absolutePath, [
-            'Content-Type' => mime_content_type($absolutePath),
-            'Cache-Control' => 'public, max-age=31536000'
-        ]);
+        return response(
+            Storage::disk('public')->get($storagePath),
+            200,
+            [
+                'Content-Type' => $picture->mime_type ?? 'application/octet-stream',
+                'Cache-Control' => 'public, max-age=31536000'
+            ]
+        );
     }
 }
