@@ -49,9 +49,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // Login logs
     Route::get('/users/{user}/login-history', [LoginLogController::class, 'getUserLoginHistory']);
 
-    // Image retrieval routes
-    Route::get('pictures/{picture}/image', [PictureController::class, 'getImage']);
-    Route::get('pictures/{picture}/thumbnail', [PictureController::class, 'getThumbnail']);
+    // Routes inside this group are still protected by auth:sanctum
+});
+
+// Image retrieval routes (moved outside group, but still protected)
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('pictures/{picture}/image', [PictureController::class, 'getImage'])->name('pictures.image');
+    Route::get('pictures/{picture}/thumbnail', [PictureController::class, 'getThumbnail'])->name('pictures.thumbnail');
 });
 
 // Catch-all for undefined routes

@@ -186,14 +186,19 @@ class PictureController extends Controller
     public function getImage(Picture $picture)
     {
         // Check if file exists in storage
-        $path = storage_path('app/public/' . $picture->path);
+        Log::info("Attempting to get image for Picture ID: {$picture->id}");
+        $storagePath = 'public/' . $picture->path; // Path relative to storage/app
 
-        if (!file_exists($path)) {
-            return response()->json(['error' => 'Image not found'], 404);
+        if (!$picture->path || !Storage::exists($storagePath)) {
+            Log::error("Image file not found for Picture ID: {$picture->id} at path: {$storagePath}");
+            return response()->json(['error' => 'Image file not found in storage'], 404);
         }
 
+        Log::info("Serving image file from path: {$storagePath}");
         // Return the file with proper content type
-        return response()->file($path);
+        // Use Storage facade to get file path if needed, or directly use response()->file
+        // return response()->file(Storage::path($storagePath));
+        return Storage::response($storagePath); // More direct way using Storage facade
     }
 
     /**
@@ -207,14 +212,18 @@ class PictureController extends Controller
         }
 
         // Check if thumbnail exists
-        $path = storage_path('app/public/' . $picture->thumbnail_path);
+        Log::info("Attempting to get thumbnail for Picture ID: {$picture->id}");
+        $storagePath = 'public/' . $picture->thumbnail_path; // Path relative to storage/app
 
-        if (!file_exists($path)) {
+        if (!$picture->thumbnail_path || !Storage::exists($storagePath)) {
+            Log::warning("Thumbnail file not found for Picture ID: {$picture->id} at path: {$storagePath}. Falling back to original image.");
             // Fallback to original image
             return $this->getImage($picture);
         }
 
+        Log::info("Serving thumbnail file from path: {$storagePath}");
         // Return the file with proper content type
-        return response()->file($path);
+        // return response()->file(Storage::path($storagePath));
+        return Storage::response($storagePath); // More direct way using Storage facade
     }
 }
