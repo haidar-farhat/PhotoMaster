@@ -9,7 +9,8 @@ import { getPhotoThumbnail, getPhotoImage } from '../services/api'; // Import ne
 
 const PLACEHOLDER_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
-function PhotoCard({ photo, onDelete, handleDownload }) {
+// Removed handleDownload prop
+function PhotoCard({ photo, onDelete }) {
   const [openPreview, setOpenPreview] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [imgSrc, setImgSrc] = useState(PLACEHOLDER_IMAGE); // Start with placeholder
@@ -139,13 +140,14 @@ return (
         </CardContent>
         
         <CardActions>
+          {/* Replaced Download button with Edit button */}
           <IconButton 
             size="small" 
-            color="primary" 
-            onClick={() => handleDownload(photo)}
-            title="Download"
+            color="primary"
+            onClick={() => setOpenEditor(true)} // Opens editor directly
+            title="Edit"
           >
-            <DownloadIcon />
+            <EditIcon />
           </IconButton>
           <IconButton 
             size="small" 
@@ -176,14 +178,7 @@ return (
              <img src={previewImgSrc} alt={photo.filename} style={{ maxWidth: '100%', maxHeight: '80vh', display: 'block' }} />
            )}
          </DialogContent>
-         <DialogActions sx={{ justifyContent: 'space-between' }}> {/* Align buttons */}
-           <Button 
-             onClick={handleEditClick} 
-             startIcon={<EditIcon />}
-             color="primary"
-           >
-             Edit
-           </Button>
+         <DialogActions> {/* Removed Edit button from preview dialog */}
            <Button onClick={closePreviewDialog}>Close</Button>
         </DialogActions>
       </Dialog>
