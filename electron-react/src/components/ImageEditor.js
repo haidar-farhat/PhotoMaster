@@ -100,6 +100,9 @@ function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
 
     console.log("Loading image from URL:", imageSrcUrl);
     
+    // Add cache buster to URL
+    const cacheBusterUrl = `${imageSrcUrl}${imageSrcUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
+    
     const img = new Image();
     img.crossOrigin = 'anonymous'; // Important for canvas operations if image is from another origin
     
@@ -156,7 +159,7 @@ function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
     };
     
     // Set the source after setting up event handlers
-    img.src = imageSrcUrl;
+    img.src = cacheBusterUrl;  // Use modified URL with cache buster
   };
 
   // Handle tab change
@@ -452,7 +455,15 @@ function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
               overflow: 'hidden'
             }}
           >
-            <canvas ref={canvasRef} />
+            // In the return statement's canvas element:
+            {/* Canvas element with fixed dimensions */}
+                        <canvas 
+                          ref={canvasRef} 
+                          style={{
+                            width: '800px',
+                            height: '600px'
+                          }}
+                        />
             
             {(isSaving || isImageLoading) && (
               <Box 

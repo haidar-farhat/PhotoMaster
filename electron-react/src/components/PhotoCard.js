@@ -234,7 +234,14 @@ return (
       {/* Pass the previewImgSrc (object URL) to the editor */}
       <ImageEditor 
         open={openEditor} 
-        onClose={() => setOpenEditor(false)} 
+        onClose={() => {
+          setOpenEditor(false);
+          // Revoke the object URL when editor closes
+          if (previewImgSrc && previewImgSrc !== PLACEHOLDER_IMAGE) {
+            URL.revokeObjectURL(previewImgSrc);
+            setPreviewImgSrc(PLACEHOLDER_IMAGE);
+          }
+        }}
         photo={photo}
         imageSrcUrl={previewImgSrc} // Pass the image source URL
         onSave={() => {
