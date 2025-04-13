@@ -27,8 +27,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Pictures management
     Route::apiResource('pictures', PictureController::class);
-    Route::post('pictures/{picture}/replace', [PictureController::class, 'replaceImage']);
-    Route::put('pictures/{picture}/image', [PictureController::class, 'updateImage']);
+    Route::post('/pictures/{id}/replace', [PictureController::class, 'replace']);
+    Route::put('/pictures/{picture}/image', [PictureController::class, 'replaceImage']);
 
     // User photos - FIXED: removed duplicate route
     Route::get('/users/{user}/photos', [PictureController::class, 'getUserPhotos']);
@@ -43,8 +43,3 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('pictures/{picture}/image', [PictureController::class, 'getImage'])->name('pictures.image');
     Route::get('pictures/{picture}/thumbnail', [PictureController::class, 'getThumbnail'])->name('pictures.thumbnail');
 });
-
-// Catch-all for undefined routes
-Route::any('{any}', function () {
-    return response()->json(['message' => 'Endpoint not found'], 404);
-})->where('any', '.*');

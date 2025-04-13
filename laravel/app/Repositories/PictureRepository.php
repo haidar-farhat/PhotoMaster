@@ -4,6 +4,7 @@ namespace App\Repositories;
 
 use App\Models\Picture;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Storage;
 
 class PictureRepository
 {
@@ -42,5 +43,34 @@ class PictureRepository
     public function delete(int $id): bool
     {
         return $this->model->destroy($id);
+    }
+
+    public function replace($id, $file)
+    {
+        $picture = Picture::findOrFail($id);
+
+        // Get the old file path to delete it later
+        $oldPath = $picture->path;
+
+        // Generate new file path
+        $filename = $file->getClientOriginalName();
+        $path = 'images/' . time() . '_' . $filename;
+
+        // Store the new file
+        Storage::disk('public')->put($path, file_get_contents($file));
+
+        // Update the picture record
+        $picture->update([
+            'filename' => $filename,
+            'path' => $path,
+            'updated_at' => now()
+        ]);
+
+        // Delete the old file
+        if ($oldPath && Storage::disk('public')->exists($oldPath)) {
+            Storage::disk('public')->delete($oldPath);
+        }
+
+        return $picture;
     }
 }

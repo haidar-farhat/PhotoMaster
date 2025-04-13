@@ -6,43 +6,26 @@ use Illuminate\Contracts\Validation\Rule;
 
 class Base64Image implements Rule
 {
-    /**
-     * Determine if the validation rule passes.
-     *
-     * @param  string  $attribute
-     * @param  mixed  $value
-     * @return bool
-     */
+    private $errorType = 'generic';
+
     public function passes($attribute, $value)
     {
-        if (!is_string($value) || !preg_match('/^data:image\/(\w+);base64,/', $value, $matches)) {
+        if (!preg_match('/^data:image\/jpeg;base64,/i', $value)) {
+            $this->errorType = 'format';
             return false;
         }
 
-        // Check if the image type is valid
-        $imageType = $matches[1];
-        if (!in_array($imageType, ['jpeg', 'jpg', 'png', 'gif'])) {
-            return false;
-        }
-
-        // Decode the base64 data
-        $data = substr($value, strpos($value, ',') + 1);
-        $decoded = base64_decode($data, true);
-
-        if ($decoded === false) {
-            return false;
-        }
-
-        return true;
+        return preg_match('/^data:image\/jpeg;base64,[a-zA-Z0-9\/\r\n+]*={0,2}$/i', $value);
     }
 
-    /**
-     * Get the validation error message.
-     *
-     * @return string
-     */
     public function message()
     {
-        return 'The :attribute must be a valid base64 encoded image.';
+        $messages = [
+            'format' => 'Invalid JPEG base64 format. Must start with "data:image/jpeg;base64,"',
+            'encoding' => 'Invalid base64 encoding',
+            'generic' => 'Invalid base64 image data'
+        ];
+
+        return $messages[$this->errorType] ?? $messages['generic'];
     }
 }

@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\Picture;
 use App\Services\PictureService;
 use App\Rules\Base64Image;
+use Intervention\Image\Facades\Image;
 
 class PictureController extends Controller
 {
@@ -123,23 +124,72 @@ class PictureController extends Controller
 
     public function replaceImage(Request $request, Picture $picture)
     {
-        $data = $request->validate([
-            'base64_image' => ['required', new Base64Image],
-        ]);
-
         try {
-            $updatedPicture = $this->pictureService->replaceImage($picture, $data['base64_image']);
+            ini_set('memory_limit', '512M');
+            ini_set('max_execution_time', '300');
 
-            return response()->json($updatedPicture);
-        } catch (\Exception $e) {
-            Log::error('Image replacement failed', [
-                'error' => $e->getMessage(),
-                'picture_id' => $picture->id
+            $request->validate([
+                'base64_image' => ['required', new Base64Image],
             ]);
 
+            if (!preg_match('/^data:image\/jpeg;base64,(.+)/', $request->base64_image, $matches)) {
+                throw new \Exception('Invalid JPEG base64 format');
+            }
+
+            $decodedData = base64_decode($matches[1], true);
+            if ($decodedData === false) {
+                throw new \Exception('Base64 decoding failed');
+            }
+
+            if (!@imagecreatefromstring($decodedData)) {
+                throw new \Exception('Invalid JPEG content');
+            }
+
+            $img = Image::make($decodedData);
+            $img->encode('jpg', 80);
+
+            // Keep existing folder structure
+            $userFolder = 'users/' . $picture->user_id . '/' . date('Y/m');
+            $filename = uniqid() . '_' . time() . '.jpg';
+            $storagePath = "$userFolder/$filename";
+
+            // Delete old files (keep original implementation)
+            Storage::disk('public')->delete([$picture->path, $picture->thumbnail_path]);
+
+            // Store new image
+            Storage::disk('public')->put($storagePath, $img->stream());
+
+            // Create thumbnail (keep original implementation)
+            // Create thumbnail - fix extension parameter
+            $thumbnailPath = $this->createThumbnailFromIntervention($img, $userFolder, $filename, 'jpg');
+
+            // Update database record (keep original fields)
+            $updatedData = [
+                'filename' => $filename,
+                'path' => $storagePath,
+                'thumbnail_path' => $thumbnailPath,
+                'file_size' => $img->filesize(),
+                'mime_type' => 'image/jpeg',
+                'url' => url('storage/' . $storagePath),
+                'thumbnail_url' => $thumbnailPath ? url('storage/' . $thumbnailPath) : null
+            ];
+
+            $this->pictureService->update($picture->id, $updatedData);
+
             return response()->json([
-                'message' => 'Image replacement failed',
-                'error' => $e->getMessage()
+                'message' => 'Image replaced successfully',
+                'picture' => $picture->fresh()
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('IMAGE PROCESSING FAILURE', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'picture_id' => $picture->id
+            ]);
+            return response()->json([
+                'message' => 'Image processing failed: ' . $e->getMessage(),
+                'error' => $e->getMessage() // Add error details to response
             ], 500);
         }
     }
@@ -267,5 +317,34 @@ class PictureController extends Controller
                 'Cache-Control' => 'public, max-age=31536000'
             ]
         );
+    }
+
+    /**
+     * Create a thumbnail from an Intervention Image instance
+     *
+     * @param \Intervention\Image\Image $img
+     * @param string $folder
+     * @param string $filename
+     * @return string|null
+     */
+    private function createThumbnailFromIntervention($img, $folder, $filename, $extension)
+    {
+        try {
+            $thumbnailFilename = 'thumb_' . $filename;
+            $thumbnailPath = "$folder/$thumbnailFilename";
+
+            $thumbImg = clone $img;
+            $thumbImg->resize(300, null, function ($constraint) {
+                $constraint->aspectRatio();
+                $constraint->upsize();
+            });
+
+            Storage::disk('public')->put($thumbnailPath, $thumbImg->encode($extension));
+
+            return $thumbnailPath;
+        } catch (\Exception $e) {
+            Log::error('Thumbnail creation error: ' . $e->getMessage());
+            return null;
+        }
     }
 }

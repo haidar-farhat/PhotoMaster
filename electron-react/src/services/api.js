@@ -112,14 +112,18 @@ export const deletePhoto = async (photoId) => {
 };
 
 // Fixed replacePhoto function to use the api instance
-export const replacePhoto = async (id, dataURL) => {
+export const replacePhoto = async (id, base64Image) => {
   try {
     const response = await api.put(
       `/pictures/${id}/image`,
-      { image: dataURL }
+      { base64_image: base64Image }
     );
     return response.data;
   } catch (error) {
+    // Enhanced error parsing for validation errors
+    if (error.response?.status === 422) {
+      error.message = error.response.data?.errors?.base64_image?.join(', ') || 'Invalid image format';
+    }
     console.error('Error replacing photo:', error);
     throw error;
   }

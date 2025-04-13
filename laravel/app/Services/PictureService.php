@@ -64,14 +64,8 @@ class PictureService
         return false;
     }
 
-    public function replaceImage(Picture $picture, string $base64Image): Picture
+    public function replaceImage($id, $file)
     {
-        // Decode base64 image
-        $imageData = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $base64Image));
-
-        // Store the new image
-        Storage::disk('public')->put($picture->path, $imageData);
-
-        return $picture->fresh();
+        return $this->pictureRepository->replace($id, $file);
     }
 }
