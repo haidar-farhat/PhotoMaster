@@ -42,7 +42,8 @@ function Dashboard({ user }) {
       
       // Verify newPhoto has expected properties
       if (newPhoto && newPhoto.id) {
-        setPhotos([...photos, newPhoto]);
+        // Refresh the entire photos list instead of just appending
+        await fetchPhotos();
         return true; // Indicate success to the UploadDialog
       } else {
         console.error('Upload response missing expected data:', newPhoto);

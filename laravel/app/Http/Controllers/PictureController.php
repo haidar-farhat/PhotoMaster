@@ -38,8 +38,10 @@ class PictureController extends Controller
             $path = $request->file('photo')->store('images/' . $data['user_id'], 'public');
 
             $picture = $this->pictureService->create([
-                'path' => $path,  // Should be like 'images/1/filename.jpg'
-                'url' => asset('storage/'.$path)  // Should generate full URL like http://localhost:8000/storage/images/1/filename.jpg
+                'user_id' => $data['user_id'],  // Add this line to pass user_id
+                'filename' => $data['filename'], // Add this line to pass filename
+                'path' => $path,
+                'url' => asset('storage/'.$path)
             ]);
 
             return response()->json($picture, 201);
