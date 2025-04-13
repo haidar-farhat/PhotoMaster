@@ -1,0 +1,4 @@
+public/storage
+storage/*
+vendor
+node_modules

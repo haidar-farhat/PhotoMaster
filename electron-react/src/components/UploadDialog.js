@@ -5,6 +5,7 @@ function UploadDialog({ open, onClose, onUpload }) {
   const [filename, setFilename] = useState('');
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState('');
+  const [base64Image, setBase64Image] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -58,10 +59,6 @@ function UploadDialog({ open, onClose, onUpload }) {
     }
   };
 
-  // At the top of your component, add this state:
-  const [base64Image, setBase64Image] = useState('');
-  
-  // And in the handleClose function, clear it:
   const handleClose = () => {
     setFilename('');
     setFile(null);

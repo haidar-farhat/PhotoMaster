@@ -5,10 +5,22 @@ services:
   laravel:
     build:
       context: ./laravel
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
     volumes:
-      - ./laravel:/var/www/html
+      # Mount specific directories but exclude the problematic ones
+      - ./laravel/app:/var/www/html/app
+      - ./laravel/bootstrap:/var/www/html/bootstrap
+      - ./laravel/config:/var/www/html/config
+      - ./laravel/database:/var/www/html/database
+      - ./laravel/resources:/var/www/html/resources
+      - ./laravel/routes:/var/www/html/routes
+      - ./laravel/tests:/var/www/html/tests
+      - ./laravel/.env:/var/www/html/.env
+      - ./laravel/artisan:/var/www/html/artisan
+      - ./laravel/composer.json:/var/www/html/composer.json
+      - ./laravel/composer.lock:/var/www/html/composer.lock
     depends_on:
       mysql:
         condition: service_healthy
@@ -22,13 +34,13 @@ services:
       - DB_PASSWORD=secret
     networks:
       - photomaster-network
-    command: bash -c "php artisan config:clear && php artisan migrate --force && php artisan serve --host=0.0.0.0"
+    command: bash -c "php artisan config:clear && php artisan migrate --force && php artisan storage:link && php artisan serve --host=0.0.0.0"
 
   # MySQL Database
   mysql:
     image: mysql:8.0
     ports:
-      - "33060:3306"  # Changed port to avoid conflict with XAMPP
+      - "33060:3306"
     environment:
       - MYSQL_DATABASE=photomaster
       - MYSQL_ROOT_PASSWORD=secret

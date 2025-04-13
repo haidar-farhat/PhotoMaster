@@ -21,9 +21,26 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
+# Create storage directory structure
+RUN mkdir -p storage/app/public/images \
+    storage/framework/cache \
+    storage/framework/sessions \
+    storage/framework/views \
+    storage/logs
+
+# Set proper permissions
+RUN chmod -R 775 storage
+RUN chown -R www-data:www-data storage
+
+# Copy only composer files first for better caching
+COPY composer.json composer.lock ./
+RUN composer install --no-scripts --no-autoloader
+
+# Copy the rest of the application
 COPY . .
 
-RUN composer install
+# Generate optimized autoload files
+RUN composer dump-autoload --optimize
 
 EXPOSE 8000
 
