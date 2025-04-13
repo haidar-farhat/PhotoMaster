@@ -104,6 +104,11 @@ const closePreviewDialog = () => {
   // }
 };
 
+const handleEditClick = () => {
+  closePreviewDialog(); // Close the preview dialog
+  setOpenEditor(true); // Open the editor dialog
+};
+
 
 return (
   <Grid item xs={12} sm={6} md={4} lg={3}>
@@ -121,26 +126,7 @@ return (
             onClick={openPreviewDialog}
           />
         )}
-        {/* Edit button positioned over the image */}
-        {!loading && (
-          <IconButton 
-            size="small" 
-            color="primary"
-            onClick={() => setOpenEditor(true)}
-            title="Edit"
-            sx={{ 
-              position: 'absolute', 
-              top: 8, 
-              right: 8, 
-              backgroundColor: 'rgba(255, 255, 255, 0.7)', // Semi-transparent background
-              '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.9)', // More opaque on hover
-              }
-            }}
-          >
-            <EditIcon />
-          </IconButton>
-        )}
+        {/* Removed Edit button from here */}
       </Box>
         
         <CardContent sx={{ flexGrow: 1 }}>
@@ -190,7 +176,14 @@ return (
              <img src={previewImgSrc} alt={photo.filename} style={{ maxWidth: '100%', maxHeight: '80vh', display: 'block' }} />
            )}
          </DialogContent>
-         <DialogActions>
+         <DialogActions sx={{ justifyContent: 'space-between' }}> {/* Align buttons */}
+           <Button 
+             onClick={handleEditClick} 
+             startIcon={<EditIcon />}
+             color="primary"
+           >
+             Edit
+           </Button>
            <Button onClick={closePreviewDialog}>Close</Button>
         </DialogActions>
       </Dialog>
