@@ -12,16 +12,10 @@ function PhotoCard({ photo, onDelete, handleDownload }) {
 
   // Set image source when photo changes
   useEffect(() => {
-    // Try using the URL directly from the photo object first
-    if (photo.url && photo.url.startsWith('http')) {
-      console.log('Using URL from photo object:', photo.url);
-      setImgSrc(photo.url);
-    } else {
-      // Fallback to constructed URL
-      const imageUrl = `http://localhost:8000/api/pictures/${photo.id}/image`;
-      console.log('Using constructed API URL:', imageUrl);
-      setImgSrc(imageUrl);
-    }
+    // Use the dedicated image endpoint
+    const imageUrl = `http://localhost:8000/api/pictures/${photo.id}/image`;
+    console.log('Using API image endpoint:', imageUrl);
+    setImgSrc(imageUrl);
     errorRef.current = false;
   }, [photo]);
 
@@ -43,24 +37,22 @@ function PhotoCard({ photo, onDelete, handleDownload }) {
               errorRef.current = true;
               console.error('Image failed to load:', imgSrc);
               
-              // Try direct storage URL as fallback
-              if (photo.path) {
-                const storageUrl = `http://localhost:8000/storage/${photo.path}`;
-                console.log('Trying direct storage URL:', storageUrl);
-                setImgSrc(storageUrl);
-                return;
-              }
+              // Try thumbnail as fallback
+              const thumbnailUrl = `http://localhost:8000/api/pictures/${photo.id}/thumbnail`;
+              console.log('Trying thumbnail URL:', thumbnailUrl);
+              setImgSrc(thumbnailUrl);
               
-              // If no path, use placeholder
-              console.log('No path available, using placeholder');
-              setImgSrc('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
+              // Set up error handler for the thumbnail fallback
+              e.target.onerror = () => {
+                console.log('Thumbnail also failed, using placeholder');
+                setImgSrc('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
+              };
             }
           }}
           sx={{ objectFit: 'cover', cursor: 'pointer' }}
           onClick={() => setOpenPreview(true)}
         />
         
-        {/* Rest of the component remains the same */}
         <CardContent sx={{ flexGrow: 1 }}>
           <Typography variant="body2" noWrap title={photo.filename}>
             {photo.filename}
@@ -70,10 +62,54 @@ function PhotoCard({ photo, onDelete, handleDownload }) {
           </Typography>
         </CardContent>
         
-        {/* Actions remain the same */}
+        <CardActions>
+          <IconButton 
+            size="small" 
+            color="primary" 
+            onClick={() => handleDownload(photo)}
+            title="Download"
+          >
+            <DownloadIcon />
+          </IconButton>
+          <IconButton 
+            size="small" 
+            color="primary" 
+            onClick={() => setOpenPreview(true)}
+            title="View"
+          >
+            <ZoomInIcon />
+          </IconButton>
+          <IconButton 
+            size="small" 
+            color="error" 
+            onClick={() => setConfirmDelete(true)}
+            title="Delete"
+          >
+            <DeleteIcon />
+          </IconButton>
+        </CardActions>
       </Card>
 
-      {/* Dialogs remain the same */}
+      {/* Image Preview Dialog */}
+      <Dialog open={openPreview} onClose={() => setOpenPreview(false)} maxWidth="md">
+        <DialogContent sx={{ p: 0 }}>
+          <img src={imgSrc} alt={photo.filename} style={{ width: '100%', display: 'block' }} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenPreview(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)}>
+        <DialogContent>
+          <Typography>Are you sure you want to delete this photo?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
+          <Button onClick={handleDelete} color="error">Delete</Button>
+        </DialogActions>
+      </Dialog>
     </Grid>
   );
 }
