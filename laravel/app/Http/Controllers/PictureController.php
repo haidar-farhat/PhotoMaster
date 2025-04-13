@@ -4,11 +4,13 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Response;
 use App\Models\User;
 use App\Models\Picture;
 use App\Services\PictureService;
 use App\Rules\Base64Image;
-use Illuminate\Support\Facades\Log;
 
 class PictureController extends Controller
 {
@@ -144,6 +146,7 @@ class PictureController extends Controller
     public function getUserPhotos(User $user)
     {
         $photos = $this->pictureService->getByUserId($user->id);
+        \Illuminate\Support\Facades\Log::info("Photos data BEFORE sending JSON for User ID: {$user->id}", $photos->toArray()); // Log the collection data
         return response()->json($photos);
     }
 
@@ -191,9 +194,9 @@ class PictureController extends Controller
     {
         // Check if file exists in storage
         Log::info("Attempting to get image for Picture ID: {$picture->id}");
-        $storagePath = 'public/' . $picture->path; // Path relative to storage/app
+        $storagePath = $picture->path; // Path relative to the disk's root (storage/app/public)
 
-        if (!$picture->path || !Storage::exists($storagePath)) {
+        if (!$picture->path || !Storage::disk('public')->exists($storagePath)) { // Use public disk
             Log::error("Image file not found for Picture ID: {$picture->id} at path: {$storagePath}");
             return response()->json(['error' => 'Image file not found in storage'], 404);
         }
@@ -202,7 +205,18 @@ class PictureController extends Controller
         // Return the file with proper content type
         // Use Storage facade to get file path if needed, or directly use response()->file
         // return response()->file(Storage::path($storagePath));
-        return Storage::response($storagePath); // More direct way using Storage facade
+        // Get the full path from the storage disk and return the file response
+        $absolutePath = storage_path('app/public/' . $storagePath);
+
+        if (!file_exists($absolutePath)) {
+            Log::error("Image file not found: {$absolutePath}");
+            throw new NotFoundHttpException('Image not found');
+        }
+
+        return Response::file($absolutePath, [
+            'Content-Type' => mime_content_type($absolutePath),
+            'Cache-Control' => 'public, max-age=31536000'
+        ]);
     }
 
     /**
@@ -217,9 +231,9 @@ class PictureController extends Controller
 
         // Check if thumbnail exists
         Log::info("Attempting to get thumbnail for Picture ID: {$picture->id}");
-        $storagePath = 'public/' . $picture->thumbnail_path; // Path relative to storage/app
+        $storagePath = $picture->thumbnail_path; // Path relative to the disk's root (storage/app/public)
 
-        if (!$picture->thumbnail_path || !Storage::exists($storagePath)) {
+        if (!$picture->thumbnail_path || !Storage::disk('public')->exists($storagePath)) { // Use public disk
             Log::warning("Thumbnail file not found for Picture ID: {$picture->id} at path: {$storagePath}. Falling back to original image.");
             // Fallback to original image
             return $this->getImage($picture);
@@ -228,6 +242,17 @@ class PictureController extends Controller
         Log::info("Serving thumbnail file from path: {$storagePath}");
         // Return the file with proper content type
         // return response()->file(Storage::path($storagePath));
-        return Storage::response($storagePath); // More direct way using Storage facade
+        // Get the full path from the storage disk and return the file response
+        $absolutePath = storage_path('app/public/' . $storagePath);
+
+        if (!file_exists($absolutePath)) {
+            Log::error("Thumbnail not found: {$absolutePath}");
+            throw new NotFoundHttpException('Thumbnail not found');
+        }
+
+        return Response::file($absolutePath, [
+            'Content-Type' => mime_content_type($absolutePath),
+            'Cache-Control' => 'public, max-age=31536000'
+        ]);
     }
 }

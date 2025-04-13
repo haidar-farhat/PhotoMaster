@@ -55,7 +55,7 @@ export const logout = async () => {
 
 export const getUserPhotos = async (userId) => {
   try {
-    const response = await api.get(`/pictures/${userId}`);
+    const response = await api.get(`/users/${userId}/photos`); // Correct endpoint
     console.log('Raw API response:', response);
     // Make sure we're returning the correct data structure
     return response.data || []; // Return data or empty array if undefined

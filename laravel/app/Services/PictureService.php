@@ -39,7 +39,9 @@ class PictureService
         }
 
         // Pass the entire validated data array, relying on $fillable in the model
-        return Picture::create($data);
+        $picture = Picture::create($data);
+        \Illuminate\Support\Facades\Log::info('Picture object AFTER creation:', $picture ? $picture->toArray() : ['Result' => 'null']); // Log the created object
+        return $picture;
     }
 
     public function update(int $id, array $data): bool
