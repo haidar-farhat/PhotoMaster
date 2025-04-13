@@ -45,7 +45,8 @@ function TabPanel(props) {
   );
 }
 
-function ImageEditor({ open, onClose, photo, onSave }) {
+// Add imageSrcUrl prop
+function ImageEditor({ open, onClose, photo, onSave, imageSrcUrl }) {
   const canvasRef = useRef(null);
   const fabricCanvasRef = useRef(null);
   const [tabValue, setTabValue] = useState(0);
@@ -84,29 +85,23 @@ function ImageEditor({ open, onClose, photo, onSave }) {
     }
   }, [open, photo]);
 
-  // Load the image into the canvas
-  const loadImage = async () => {
-    if (!photo || !fabricCanvasRef.current) return;
+  // Load the image into the canvas using the provided URL
+  const loadImage = () => {
+    // Use imageSrcUrl if available, otherwise return (or handle error)
+    if (!imageSrcUrl || !fabricCanvasRef.current) {
+      console.error("ImageEditor: imageSrcUrl not provided or canvas not ready.");
+      // Optionally display an error message in the editor dialog
+      return; 
+    }
 
-    try {
-      // Fetch the full image
-      const response = await fetch(`http://localhost:8000/api/pictures/${photo.id}/image`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.crossOrigin = 'anonymous'; // Important for canvas operations if image is from another origin
+    img.src = imageSrcUrl;
 
-      // Create a new image element
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = url;
-
-      img.onload = () => {
-        // Create a fabric image object
-        const fabricImage = new fabric.Image(img, {
+    img.onload = () => {
+      try {
+         // Create a fabric image object
+         const fabricImage = new fabric.Image(img, {
           selectable: false,
           evented: false,
           centeredScaling: true
@@ -136,12 +131,23 @@ function ImageEditor({ open, onClose, photo, onSave }) {
         setOriginalImage(fabricImage);
         setImageHistory([fabricImage]);
 
-        // Revoke the object URL to free memory
-        URL.revokeObjectURL(url);
-      };
-    } catch (error) {
-      console.error('Error loading image for editing:', error);
-    }
+         // Revoke the object URL if it was created outside (though maybe not necessary if passed from PhotoCard state)
+         // URL.revokeObjectURL(url); // Let PhotoCard manage its own object URLs
+
+         // Reset state related to previous image if necessary
+         setRotationAngle(0);
+         setIsGrayscale(false);
+         setWatermarkText('');
+         // etc.
+
+      } catch (fabricError) {
+         console.error('Error creating Fabric image:', fabricError);
+      }
+    };
+    img.onerror = () => {
+      console.error('Error loading image source:', imageSrcUrl);
+      // Handle image load error (e.g., show message)
+    };
   };
 
   // Handle tab change

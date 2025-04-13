@@ -105,9 +105,37 @@ const closePreviewDialog = () => {
   // }
 };
 
-const handleEditClick = () => {
-  closePreviewDialog(); // Close the preview dialog
-  setOpenEditor(true); // Open the editor dialog
+// Updated handleEditClick to ensure full-res image is loaded first
+const handleEditClick = async () => {
+  // If preview image isn't loaded yet, load it
+  if (previewImgSrc === PLACEHOLDER_IMAGE || previewImgSrc !== imgSrc) {
+    setLoadingPreview(true); // Show loading indicator briefly if needed
+    let fullResObjectUrl = null;
+    try {
+      const blob = await getPhotoImage(photo.id);
+      if (blob) {
+        fullResObjectUrl = URL.createObjectURL(blob);
+        // Clean up previous preview URL if it exists and is different
+        if (previewImgSrc && previewImgSrc !== PLACEHOLDER_IMAGE && previewImgSrc !== fullResObjectUrl) {
+           URL.revokeObjectURL(previewImgSrc);
+        }
+        setPreviewImgSrc(fullResObjectUrl); // Set the state for the editor prop
+        setOpenEditor(true); // Open editor *after* setting state
+      } else {
+         // Handle error or use thumbnail? For editor, probably best to show error.
+         console.error('Failed to load full image for editing.');
+         // Optionally set an error state to show a message
+      }
+    } catch (error) {
+      console.error('Error fetching full image for editing:', error);
+      // Optionally set an error state
+    } finally {
+      setLoadingPreview(false);
+    }
+  } else {
+    // If preview image is already loaded, just open the editor
+    setOpenEditor(true);
+  }
 };
 
 
@@ -144,7 +172,7 @@ return (
           <IconButton
             size="small"
             color="primary"
-            onClick={() => setOpenEditor(true)} // Opens editor directly
+            onClick={handleEditClick} // Use the new handler
             title="Edit"
           >
             <EditIcon />
@@ -195,10 +223,12 @@ return (
       </Dialog>
 
       {/* Image Editor Dialog */}
+      {/* Pass the previewImgSrc (object URL) to the editor */}
       <ImageEditor 
         open={openEditor} 
         onClose={() => setOpenEditor(false)} 
         photo={photo}
+        imageSrcUrl={previewImgSrc} // Pass the image source URL
         onSave={() => {
           // Refresh the image after editing
           setImgSrc(PLACEHOLDER_IMAGE);
