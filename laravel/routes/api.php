@@ -28,7 +28,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Pictures management
     Route::apiResource('pictures', PictureController::class);
     Route::post('/pictures/{id}/replace', [PictureController::class, 'replace']);
-    Route::put('/pictures/{picture}/image', [PictureController::class, 'replaceImage']);
+    Route::patch('/pictures/{picture}/image', [PictureController::class, 'replaceImage']);
+    Route::options('/pictures/{picture}/image', function() {
+        return response()->json(['message' => 'OK'], 200);
+    });
 
     // User photos - FIXED: removed duplicate route
     Route::get('/users/{user}/photos', [PictureController::class, 'getUserPhotos']);

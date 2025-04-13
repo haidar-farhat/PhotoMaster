@@ -44,16 +44,22 @@ function UploadDialog({ open, onClose, onUpload }) {
     setError('');
 
     try {
-      // Pass the File object directly instead of base64
+      // Add conversion feedback
+      if (!file.type.startsWith('image/jpeg')) {
+        setError('Converting image to JPEG format...');
+      }
+
       const success = await onUpload(filename, file);
       if (success) {
         handleClose();
-      } else {
-        setError('Failed to upload image. Please try again.');
       }
     } catch (err) {
-      setError('An error occurred during upload: ' + (err.message || JSON.stringify(err)));
-      console.error('Upload error:', err);
+      const serverMessage = err.response?.data?.message;
+      setError(serverMessage || `Upload failed: ${err.message}`);
+      console.error('Upload error:', {
+        error: err,
+        fileInfo: { name: file.name, type: file.type, size: file.size }
+      });
     } finally {
       setLoading(false);
     }

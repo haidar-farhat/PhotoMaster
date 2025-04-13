@@ -37,7 +37,23 @@ class PictureRepository
 
     public function update(int $id, array $data): bool
     {
-        return $this->model->where('id', $id)->update($data);
+        try {
+            $result = $this->model->where('id', $id)->update($data);
+
+            // Log the update operation
+            \Illuminate\Support\Facades\Log::info("Picture update operation for ID: {$id}", [
+                'success' => (bool)$result,
+                'fields_updated' => array_keys($data)
+            ]);
+
+            return (bool)$result;
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error("Picture update failed for ID: {$id}", [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return false;
+        }
     }
 
     public function delete(int $id): bool
