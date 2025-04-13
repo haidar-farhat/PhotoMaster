@@ -18,7 +18,7 @@ class Picture extends Model
         'user_id',
         'filename',
         'path',
-        'url'
+        'url',
     ];
 
     /**

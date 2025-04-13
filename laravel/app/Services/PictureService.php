@@ -31,9 +31,19 @@ class PictureService
         return $this->pictureRepository->getByUserId($userId);
     }
 
-    public function create(array $data): Picture
+    public function create(array $data)
     {
-        return $this->pictureRepository->create($data);
+        // Make sure user_id is included in the data being saved
+        if (!isset($data['user_id'])) {
+            throw new \Exception('User ID is required');
+        }
+
+        return Picture::create([
+            'user_id' => $data['user_id'],
+            'filename' => $data['filename'] ?? null,
+            'path' => $data['path'],
+            'url' => $data['url'],
+        ]);
     }
 
     public function update(int $id, array $data): bool
