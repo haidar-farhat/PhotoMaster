@@ -52,7 +52,7 @@ class PictureController extends Controller
             $url = url('storage/' . $path);
             $thumbnailUrl = $thumbnailPath ? url('storage/' . $thumbnailPath) : null;
 
-            $picture = $this->pictureService->create([
+            $pictureData = [
                 'user_id' => $data['user_id'],
                 'filename' => $data['filename'],
                 'path' => $path,
@@ -61,7 +61,11 @@ class PictureController extends Controller
                 'mime_type' => $file->getMimeType(),
                 'url' => $url,
                 'thumbnail_url' => $thumbnailUrl
-            ]);
+            ];
+
+            Log::info('Picture data before saving:', $pictureData); // Add logging here
+
+            $picture = $this->pictureService->create($pictureData);
 
             // Add error handling for empty response
             if (!$picture) {

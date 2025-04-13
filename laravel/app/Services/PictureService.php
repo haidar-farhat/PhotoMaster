@@ -38,12 +38,8 @@ class PictureService
             throw new \Exception('User ID is required');
         }
 
-        return Picture::create([
-            'user_id' => $data['user_id'],
-            'filename' => $data['filename'] ?? null,
-            'path' => $data['path'],
-            'url' => $data['url'],
-        ]);
+        // Pass the entire validated data array, relying on $fillable in the model
+        return Picture::create($data);
     }
 
     public function update(int $id, array $data): bool
