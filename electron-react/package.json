@@ -11,12 +11,15 @@
     "axios": "^1.4.0",
     "electron-is-dev": "^2.0.0",
     "fabric": "^5.5.2",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
+    "konva": "^9.3.20",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "react-filerobot-image-editor": "^4.9.1",
-    "react-konva": "^19.0.3",
+    "react-konva": "^18.2.10",
     "react-router-dom": "^6.11.1",
-    "react-scripts": "5.0.1"
+    "react-scripts": "5.0.1",
+    "socket.io-client": "^4.8.1",
+    "styled-components": "^6.1.17"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -25,7 +28,8 @@
     "eject": "react-scripts eject",
     "electron-dev": "concurrently \"cross-env BROWSER=none npm start\" \"wait-on http://localhost:3000 && electron .\"",
     "electron": "electron .",
-    "package": "electron-builder build --win -c.extraMetadata.main=build/electron.js --publish never"
+    "package": "electron-builder build --win -c.extraMetadata.main=build/electron.js --publish never",
+    "dev": "concurrently \"npm start\" \"cd ../chat-backend && npm run dev\""
   },
   "eslintConfig": {
     "extends": [

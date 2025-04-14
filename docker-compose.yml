@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   # Laravel Backend
   laravel:
@@ -20,12 +22,12 @@ services:
       - ./laravel/composer.lock:/var/www/html/composer.lock
       - ./laravel/storage:/var/www/html/storage
     depends_on:
-      mysql:
+      db:
         condition: service_healthy
     environment:
       - APP_ENV=local
       - DB_CONNECTION=mysql
-      - DB_HOST=mysql
+      - DB_HOST=db
       - DB_PORT=3306
       - DB_DATABASE=photomaster
       - DB_USERNAME=root
@@ -33,20 +35,20 @@ services:
     networks:
       - photomaster-network
     command: bash -c "
-      php artisan config:clear && 
-      php artisan cache:clear && 
-      php artisan view:clear && 
-      php artisan route:clear && 
-      chmod -R 777 storage && 
-      php artisan migrate --force && 
-      php artisan storage:link && 
+      php artisan config:clear &&
+      php artisan cache:clear &&
+      php artisan view:clear &&
+      php artisan route:clear &&
+      chmod -R 777 storage &&
+      php artisan migrate --force &&
+      php artisan storage:link &&
       php artisan serve --host=0.0.0.0"
 
   # MySQL Database
-  mysql:
+  db:
     image: mysql:8.0
     ports:
-      - "3307:3306"
+      - "3306:3306"
     environment:
       MYSQL_DATABASE: photomaster
       MYSQL_ROOT_PASSWORD: root
@@ -63,27 +65,29 @@ services:
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
     ports:
-      - "8081:80"  # Changed from 8080
+      - "8081:80" # Changed from 8080
     environment:
-      PMA_HOST: mysql
+      PMA_HOST: db
       PMA_PORT: 3306
       MYSQL_ROOT_PASSWORD: root
     depends_on:
-      - mysql
+      - db
     networks:
       - photomaster-network
 
   # React Frontend
-  react:
+  electron-react:
     build:
       context: ./electron-react
+      dockerfile: Dockerfile
     ports:
       - "3000:3000"
     volumes:
       - ./electron-react:/app
       - /app/node_modules
     environment:
-      - CHOKIDAR_USEPOLLING=true
+      - NODE_ENV=development
+      - CHAT_SERVER_URL=http://chat-server:5000
     depends_on:
       - laravel
     networks:
@@ -100,6 +104,19 @@ services:
       - PHP_IMAGE_DRIVER=imagick
     networks:
       - photomaster-network
+
+  chat-server:
+    build:
+      context: ./chat-backend
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./chat-backend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=5000
 
 networks:
   photomaster-network:

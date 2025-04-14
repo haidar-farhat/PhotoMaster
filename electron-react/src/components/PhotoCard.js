@@ -14,13 +14,17 @@ import {
   CircularProgress,
   Box,
   Snackbar,
-  Alert
+  Alert,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ZoomInIcon from "@mui/icons-material/ZoomIn";
 import EditIcon from "@mui/icons-material/Edit";
-import ImageEditor from "./ImageEditor";
-import { getPhotoThumbnail, getPhotoImage, replacePhoto } from "../services/api";
+import EnhancedImageEditor from "./ImageEditor";
+import {
+  getPhotoThumbnail,
+  getPhotoImage,
+  replacePhoto,
+} from "../services/api";
 
 const PLACEHOLDER_IMAGE =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
@@ -145,13 +149,13 @@ function PhotoCard({ photo, onDelete }) {
     try {
       // Force refresh images by updating the version
       setImageVersion(Date.now());
-      
+
       // Reset preview image to force a refetch
       if (previewImgSrc && previewImgSrc !== PLACEHOLDER_IMAGE) {
         URL.revokeObjectURL(previewImgSrc);
         setPreviewImgSrc(PLACEHOLDER_IMAGE);
       }
-      
+
       console.log("Image updated successfully:", updatedPhoto);
     } catch (error) {
       console.error("Error handling editor save:", error);
@@ -275,7 +279,7 @@ function PhotoCard({ photo, onDelete }) {
       </Dialog>
 
       {/* Image Editor Dialog */}
-      <ImageEditor
+      <EnhancedImageEditor
         open={openEditor}
         onClose={() => {
           setOpenEditor(false);
@@ -294,7 +298,11 @@ function PhotoCard({ photo, onDelete }) {
         autoHideDuration={6000}
         onClose={handleCloseError}
       >
-        <Alert onClose={handleCloseError} severity="error" sx={{ width: "100%" }}>
+        <Alert
+          onClose={handleCloseError}
+          severity="error"
+          sx={{ width: "100%" }}
+        >
           {error}
         </Alert>
       </Snackbar>

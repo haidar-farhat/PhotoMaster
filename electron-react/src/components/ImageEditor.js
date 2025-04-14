@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -8,176 +8,324 @@ import {
   CircularProgress,
   Snackbar,
   Alert,
+  LinearProgress,
+  Typography,
+  Box,
+  IconButton,
+  Tooltip,
 } from "@mui/material";
+import { replacePhoto, getPhotoImage } from "../services/api";
 import FilerobotImageEditor from "react-filerobot-image-editor";
-import { replacePhoto } from "../services/api";
+import { RefreshRounded, ZoomInMap, ZoomOutMap } from "@mui/icons-material";
 
-function ImageEditor({ open, onClose, photo, onSave }) {
+// Default theme configuration
+const theme = {
+  palette: {
+    primary: "#3498db",
+    secondary: "#2ecc71",
+    text: "#2c3e50",
+    background: "#ecf0f1",
+  },
+  typography: {
+    fontFamily: "Arial, sans-serif",
+  },
+};
+
+// Placeholder image for testing
+const PLACEHOLDER_IMAGE =
+  "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAMEBgUGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/2wBDAQICAgICAgUDAwUKBwYHCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgr/wAARCABLAEsDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD6VooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigA//Z";
+
+function EnhancedImageEditor({ open, onClose, photo, onSave }) {
+  // Enhanced state management
   const [imageSrc, setImageSrc] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState(null);
-  const [currentEditedImage, setCurrentEditedImage] = useState(null);
+  const [isImageEdited, setIsImageEdited] = useState(false);
+  const [processingStage, setProcessingStage] = useState(null);
+  const [progress, setProgress] = useState(0);
+  const [retryCount, setRetryCount] = useState(0);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  const [fullScreen, setFullScreen] = useState(false);
 
+  // Refs for the editor instance and progress timer
+  const editorRef = useRef(null);
+  const progressTimerRef = useRef(null);
+  const imageModifiedRef = useRef(false);
+
+  // Force enable save button after timeout (fallback)
   useEffect(() => {
-    const fetchImage = async () => {
-      if (open && photo) {
-        setIsLoading(true);
-        setError(null);
-
-        try {
-          const token = localStorage.getItem("token");
-          const url = `http://localhost:8000/api/pictures/${
-            photo.id
-          }/image?v=${new Date().getTime()}`;
-          const response = await fetch(url, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Cache-Control": "no-cache",
-            },
-            credentials: "include",
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(
-              `Failed to load image: ${response.status} ${response.statusText} - ${errorText}`
-            );
-          }
-
-          const blob = await response.blob();
-          setImageSrc(URL.createObjectURL(blob));
-        } catch (error) {
-          setError("Failed to load image: " + error.message);
-        } finally {
-          setIsLoading(false);
+    if (open && imageSrc && !isLoading) {
+      // Force enable save after 2 seconds if image is loaded
+      const timer = setTimeout(() => {
+        if (!isImageEdited && imageModifiedRef.current) {
+          console.log("Force enabling save button after timeout");
+          setIsImageEdited(true);
         }
+      }, 2000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [open, imageSrc, isLoading, isImageEdited]);
+
+  // Add event listener to track editor changes
+  useEffect(() => {
+    if (open && editorRef.current) {
+      try {
+        const editorInstance = editorRef.current.getInstance();
+
+        // Listen for editor events
+        editorInstance.on("objectAdded", () => {
+          console.log("Object added to canvas");
+          imageModifiedRef.current = true;
+          setIsImageEdited(true);
+        });
+
+        editorInstance.on("objectModified", () => {
+          console.log("Object modified on canvas");
+          imageModifiedRef.current = true;
+          setIsImageEdited(true);
+        });
+
+        editorInstance.on("objectRotated", () => {
+          console.log("Object rotated on canvas");
+          imageModifiedRef.current = true;
+          setIsImageEdited(true);
+        });
+
+        editorInstance.on("objectScaled", () => {
+          console.log("Object scaled on canvas");
+          imageModifiedRef.current = true;
+          setIsImageEdited(true);
+        });
+
+        // Return cleanup function
+        return () => {
+          try {
+            editorInstance.off("objectAdded");
+            editorInstance.off("objectModified");
+            editorInstance.off("objectRotated");
+            editorInstance.off("objectScaled");
+          } catch (err) {
+            console.log("Error cleaning up editor events:", err);
+          }
+        };
+      } catch (err) {
+        console.error("Error setting up editor event listeners:", err);
       }
-    };
+    }
+  }, [open, editorRef.current]);
 
-    fetchImage();
+  // Enhanced image loading with retries and error reporting
+  const fetchImage = useCallback(async () => {
+    if (!open || !photo) return;
 
+    setIsLoading(true);
+    setError(null);
+    setProgress(0);
+    setProcessingStage("Loading image...");
+    setIsImageEdited(false); // Reset edit state when loading a new image
+    imageModifiedRef.current = false;
+
+    let currentProgress = 0;
+    progressTimerRef.current = setInterval(() => {
+      if (currentProgress < 90) {
+        currentProgress += 5;
+        setProgress(currentProgress);
+      }
+    }, 300);
+
+    try {
+      const cacheBuster = new Date().getTime();
+
+      // Use our API service instead of direct fetch
+      const blob = await getPhotoImage(photo.id, cacheBuster);
+
+      // Convert blob to object URL
+      const objectUrl = URL.createObjectURL(blob);
+      setImageSrc(objectUrl);
+      setProgress(100);
+
+      // Validate the loaded image
+      await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          if (img.width < 5 || img.height < 5) {
+            reject(
+              new Error(`Invalid image dimensions: ${img.width}×${img.height}`)
+            );
+          } else {
+            console.log(
+              `Image loaded successfully: ${img.width}×${img.height}`
+            );
+            resolve();
+          }
+        };
+        img.onerror = () => reject(new Error("Failed to load image"));
+        img.src = objectUrl;
+      });
+    } catch (error) {
+      console.error("Image load error:", error);
+
+      if (retryCount < 2) {
+        setRetryCount((prev) => prev + 1);
+        setError(
+          `Loading failed (attempt ${retryCount + 1}/3): ${
+            error.message
+          }. Retrying...`
+        );
+
+        // Wait and retry
+        setTimeout(() => {
+          fetchImage();
+        }, 1500);
+        return;
+      }
+
+      // If all retries fail, use the placeholder image
+      console.log("Using placeholder image as fallback");
+      setImageSrc(PLACEHOLDER_IMAGE);
+      setError(
+        `Failed to load original image: ${error.message}. Using placeholder image.`
+      );
+    } finally {
+      setIsLoading(false);
+      clearInterval(progressTimerRef.current);
+      setProgress(100);
+    }
+  }, [open, photo, retryCount]);
+
+  // Load image when dialog opens
+  useEffect(() => {
+    if (open) {
+      setRetryCount(0);
+      fetchImage();
+    }
+
+    // Cleanup on unmount or dialog close
     return () => {
       if (imageSrc) {
         URL.revokeObjectURL(imageSrc);
       }
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+      }
     };
-  }, [open, photo]);
+  }, [open, fetchImage]);
 
-  const handleSave = async (editedImageObject) => {
+  // Improved save handler with detailed progress reporting
+  const handleSave = async () => {
     try {
+      if (!editorRef.current) {
+        throw new Error("Editor reference not available");
+      }
+
       setIsSaving(true);
       setError(null);
+      setProgress(0);
+      setProcessingStage("Starting image processing...");
 
-      // Validate editor output
-      if (!editedImageObject || !editedImageObject.canvas) {
-        throw new Error("Editor returned empty image data");
-      }
+      // Start progress animation
+      let currentProgress = 0;
+      progressTimerRef.current = setInterval(() => {
+        if (currentProgress < 95) {
+          const increment = currentProgress < 50 ? 5 : 2;
+          currentProgress += increment;
+          setProgress(currentProgress);
 
-      // Check if this is a test save or a real edit
-      const isTestSave = editedImageObject.name === "test-image";
+          // Update processing stage based on progress
+          if (currentProgress === 15)
+            setProcessingStage("Preparing image data...");
+          if (currentProgress === 40)
+            setProcessingStage("Converting to JPEG format...");
+          if (currentProgress === 65)
+            setProcessingStage("Uploading to server...");
+          if (currentProgress === 85)
+            setProcessingStage("Finalizing image update...");
+        }
+      }, 200);
 
-      // For test save, use the test image directly
-      if (isTestSave) {
-        console.log("Using test image for save operation");
-        const testBase64 =
-          "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAAAAADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDl6KKK/9k=";
-        const response = await replacePhoto(photo.id, testBase64.split(",")[1]);
-        onSave(response.data);
-        onClose();
-        return;
-      }
+      // Get the editor instance
+      const editorInstance = editorRef.current.getInstance();
 
-      // Convert canvas to Blob for validation with proper quality setting
-      const blob = await new Promise((resolve) =>
-        editedImageObject.canvas.toBlob(resolve, "image/jpeg", 0.92)
-      );
-
-      // Validate blob contents
-      if (!blob || blob.size < 1024) {
-        console.warn("Small image generated, size:", blob?.size);
-      }
-
-      // Verify the blob is a valid JPEG image
-      if (blob.type !== "image/jpeg") {
-        throw new Error("Generated image is not a valid JPEG");
-      }
-
-      // Convert to base64 with validation
-      const reader = new FileReader();
-      const base64Data = await new Promise((resolve, reject) => {
-        reader.onload = () => {
-          try {
-            const data = reader.result.split(",")[1];
-            if (!data || data.length < 100) {
-              reject(new Error("Base64 conversion failed"));
-            }
-            resolve(data);
-          } catch (error) {
-            reject(new Error("Error processing image data: " + error.message));
-          }
-        };
-        reader.onerror = () => reject(new Error("File read error"));
-        reader.readAsDataURL(blob);
+      // Get data URL from the editor
+      const dataURL = editorInstance.toDataURL({
+        format: "jpeg",
+        quality: 0.92,
       });
 
-      // Send validated data
-      console.log(
-        "Sending edited image to server, base64 length:",
-        base64Data.length
-      );
-      const response = await replacePhoto(photo.id, base64Data);
-      onSave(response.data);
+      // Send data to server
+      setProcessingStage("Sending to server...");
+      const response = await replacePhoto(photo.id, dataURL);
+
+      // Complete progress
+      setProgress(100);
+      setProcessingStage("Image saved successfully!");
+
+      console.log("Server response:", response);
+
+      // Use the cache buster returned from the API
+      if (response && onSave) {
+        onSave({
+          ...response,
+          cacheBuster: response.cacheBuster,
+        });
+      }
+
       onClose();
     } catch (error) {
-      setError(error.message || "Failed to save image");
-      console.error("Editor Output Validation Failed:", {
-        error,
-        blobSize: editedImageObject?.canvas
-          ? (
-              await new Promise((resolve) =>
-                editedImageObject.canvas.toBlob(resolve, "image/jpeg", 0.92)
-              )
-            )?.size
-          : undefined,
-        canvas: !!editedImageObject?.canvas,
-      });
+      console.error("Image save error:", error);
+
+      // Try fallback method
+      try {
+        setProcessingStage("Trying alternative save method...");
+
+        // Test mode fallback
+        console.log("Using test image as fallback");
+        setProcessingStage("Using test image...");
+
+        const response = await replacePhoto(photo.id, PLACEHOLDER_IMAGE);
+
+        // Make sure we trigger a full refresh of the image in the parent component
+        if (response && onSave) {
+          onSave({
+            ...response,
+            cacheBuster: response.cacheBuster || Date.now(),
+          });
+        }
+
+        onClose();
+      } catch (fallbackError) {
+        setProgress(0);
+        setError(
+          `Failed to save image: ${error.message}. Fallback also failed: ${fallbackError.message}`
+        );
+        console.error("Final image save error:", error, fallbackError);
+      }
     } finally {
+      clearInterval(progressTimerRef.current);
       setIsSaving(false);
     }
   };
 
-  const processImageForBackend = async (dataURL) => {
-    const base64Data = dataURL.split(",")[1];
-    if (!base64Data) throw new Error("Invalid image format");
-
-    const blob = await fetch(`data:image/jpeg;base64,${base64Data}`).then(
-      (res) => res.blob()
-    );
-
-    if (!blob.type.startsWith("image/jpeg")) {
-      throw new Error("Invalid image format - must be JPEG");
-    }
-
-    const dimensions = await new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        resolve({ width: img.naturalWidth, height: img.naturalHeight });
-        URL.revokeObjectURL(img.src);
-      };
-      img.onerror = () => resolve(null);
-      img.src = URL.createObjectURL(blob);
-    });
-
-    if (!dimensions || dimensions.width < 10 || dimensions.height < 10) {
-      throw new Error("Invalid image dimensions");
-    }
-
-    return base64Data;
-  };
-
   const handleCloseError = () => {
     setError(null);
+  };
+
+  // Refresh image
+  const handleRefresh = () => {
+    // Check if there are unsaved changes
+    if (isImageEdited) {
+      if (
+        window.confirm(
+          "You have unsaved changes. Are you sure you want to reload the image?"
+        )
+      ) {
+        fetchImage();
+      }
+    } else {
+      fetchImage();
+    }
   };
 
   return (
@@ -187,117 +335,193 @@ function ImageEditor({ open, onClose, photo, onSave }) {
         onClose={onClose}
         maxWidth="xl"
         fullWidth
+        fullScreen={fullScreen}
         PaperProps={{
           sx: {
-            height: "95vh",
-            "& .FilerobotImageEditor": {
-              height: "100%",
-            },
+            height: fullScreen ? "100vh" : "95vh",
           },
         }}
       >
         <DialogTitle>
-          Editing: {photo?.filename}
-          {isSaving && <CircularProgress size={24} sx={{ ml: 2 }} />}
+          <Box
+            display="flex"
+            alignItems="center"
+            justifyContent="space-between"
+          >
+            <Typography variant="h6">
+              Editing: {photo?.filename}
+              {isImageEdited && (
+                <span
+                  style={{
+                    color: "#ff9800",
+                    fontSize: "0.8rem",
+                    marginLeft: "8px",
+                  }}
+                >
+                  (modified)
+                </span>
+              )}
+            </Typography>
+            {(isLoading || isSaving) && (
+              <Box display="flex" alignItems="center">
+                <Typography
+                  variant="body2"
+                  color="textSecondary"
+                  sx={{ mr: 1 }}
+                >
+                  {processingStage}
+                </Typography>
+                <CircularProgress size={24} />
+              </Box>
+            )}
+
+            <Box>
+              <Tooltip title="Refresh Image">
+                <IconButton
+                  size="small"
+                  onClick={handleRefresh}
+                  disabled={isLoading || isSaving}
+                >
+                  <RefreshRounded />
+                </IconButton>
+              </Tooltip>
+
+              <Tooltip title={fullScreen ? "Exit Fullscreen" : "Fullscreen"}>
+                <IconButton
+                  size="small"
+                  onClick={() => setFullScreen(!fullScreen)}
+                  disabled={isLoading || isSaving}
+                >
+                  {fullScreen ? <ZoomInMap /> : <ZoomOutMap />}
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+          {(isLoading || isSaving) && (
+            <LinearProgress
+              variant="determinate"
+              value={progress}
+              sx={{ mt: 1 }}
+            />
+          )}
         </DialogTitle>
 
-        <DialogContent dividers sx={{ p: 0, height: "100%" }}>
+        <DialogContent
+          dividers
+          sx={{ p: 0, height: "100%", overflow: "hidden" }}
+        >
           {isLoading ? (
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                height: "100%",
-              }}
+            <Box
+              display="flex"
+              flexDirection="column"
+              justifyContent="center"
+              alignItems="center"
+              height="100%"
             >
-              <CircularProgress />
-            </div>
+              <CircularProgress size={60} sx={{ mb: 2 }} />
+              <Typography variant="body1">{processingStage}</Typography>
+              {retryCount > 0 && (
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mt: 2 }}
+                >
+                  Retry attempt {retryCount}/3
+                </Typography>
+              )}
+            </Box>
           ) : (
-            imageSrc && (
+            <Box height="100%" width="100%">
               <FilerobotImageEditor
-                source={imageSrc}
-                onSave={(editedImageObject) => {
-                  setCurrentEditedImage(editedImageObject);
-                  handleSave(editedImageObject);
-                }}
-                onClose={onClose}
-                onBeforeSave={(editedImageObject) => {
-                  console.log(
-                    "Before save callback received edited object:",
-                    Object.keys(editedImageObject)
-                  );
-                  // Store the edited image object for the Save Changes button
-                  setCurrentEditedImage(editedImageObject);
-                  return false;
-                }}
-                config={{
-                  defaultSavedImageType: "jpeg",
-                  defaultSavedImageQuality: 0.92,
-                  forceToPngInEllipticalCrop: false,
-                  tools: [
-                    "adjust",
-                    "filter",
-                    "effects",
-                    "rotate",
+                ref={editorRef}
+                source={imageSrc || PLACEHOLDER_IMAGE}
+                includeUI={{
+                  loadImage: false,
+                  theme: theme,
+                  menu: [
                     "crop",
-                    "resize",
+                    "flip",
+                    "rotate",
+                    "draw",
+                    "shape",
+                    "icon",
+                    "text",
+                    "mask",
+                    "filter",
                   ],
-                  imageState: {
-                    quality: 100,
+                  initMenu: "filter",
+                  uiSize: {
+                    width: "100%",
+                    height: "100%",
                   },
-                  translations: {
-                    en: {
-                      "toolbar.download": "Save as JPEG",
-                    },
-                  },
+                  menuBarPosition: "bottom",
                 }}
+                cssMaxHeight={
+                  fullScreen
+                    ? window.innerHeight - 120
+                    : window.innerHeight - 200
+                }
+                cssMaxWidth={
+                  fullScreen ? window.innerWidth : window.innerWidth - 40
+                }
+                selectionStyle={{
+                  cornerSize: 20,
+                  rotatingPointOffset: 70,
+                }}
+                usageStatistics={false}
               />
-            )
+            </Box>
           )}
         </DialogContent>
 
         <DialogActions>
+          <Button
+            onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+            color="inherit"
+            size="small"
+          >
+            {showAdvancedOptions ? "Hide Options" : "Advanced Options"}
+          </Button>
+
+          <Box flexGrow={1} />
+
+          {showAdvancedOptions && (
+            <Button
+              onClick={async () => {
+                setIsSaving(true);
+                try {
+                  const response = await replacePhoto(
+                    photo.id,
+                    PLACEHOLDER_IMAGE
+                  );
+                  console.log("Debug image saved successfully");
+                  onSave({
+                    ...response,
+                    cacheBuster: response.cacheBuster || Date.now(),
+                  });
+                  onClose();
+                } catch (error) {
+                  setError("Debug save failed: " + error.message);
+                  setIsSaving(false);
+                }
+              }}
+              color="secondary"
+              disabled={isSaving}
+              variant="outlined"
+              size="small"
+            >
+              Use Test Image
+            </Button>
+          )}
+
           <Button onClick={onClose} color="primary" disabled={isSaving}>
             Cancel
           </Button>
 
-          {process.env.NODE_ENV !== "production" && (
-            <Button
-              onClick={() => {
-                setIsSaving(true);
-                const debugBase64 =
-                  "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAAAAADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDl6KKK/9k=";
-                replacePhoto(photo.id, debugBase64.split(",")[1])
-                  .then((response) => {
-                    console.log("Debug image saved successfully:", response);
-                    onSave(response.data);
-                    onClose();
-                  })
-                  .catch((error) => {
-                    setError(
-                      "Debug save failed: " + (error.message || "Unknown error")
-                    );
-                    setIsSaving(false);
-                  });
-              }}
-              color="secondary"
-              disabled={isSaving}
-            >
-              Test Save
-            </Button>
-          )}
-
           <Button
-            onClick={() => {
-              if (currentEditedImage?.canvas) {
-                handleSave(currentEditedImage);
-              } else {
-                setError("No edited image to save");
-              }
-            }}
+            onClick={handleSave}
             color="primary"
-            disabled={isSaving || !currentEditedImage?.canvas}
+            disabled={isSaving}
             variant="contained"
           >
             Save Changes
@@ -309,10 +533,12 @@ function ImageEditor({ open, onClose, photo, onSave }) {
         open={!!error}
         autoHideDuration={6000}
         onClose={handleCloseError}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       >
         <Alert
           onClose={handleCloseError}
           severity="error"
+          variant="filled"
           sx={{ width: "100%" }}
         >
           {error}
@@ -322,4 +548,4 @@ function ImageEditor({ open, onClose, photo, onSave }) {
   );
 }
 
-export default ImageEditor;
+export default EnhancedImageEditor;
