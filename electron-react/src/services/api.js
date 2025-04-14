@@ -144,19 +144,28 @@ export const deletePhoto = async (photoId) => {
 
 export const replacePhoto = async (id, base64Data) => {
   try {
-    if (!base64Data || typeof base64Data !== 'string') {
+    if (!base64Data || typeof base64Data !== "string") {
       throw new Error("No image data provided");
     }
 
-    const response = await api.patch(`/pictures/${id}/image`, {
-      image_data: base64Data
-    }, {
-      headers: {
-        'Content-Transfer-Encoding': 'base64',
-        'X-Image-Length': base64Data.length
+    // Ensure the base64 data has the proper prefix
+    const formattedBase64 = base64Data.startsWith("data:image/jpeg;base64,")
+      ? base64Data
+      : `data:image/jpeg;base64,${base64Data}`;
+
+    const response = await api.patch(
+      `/pictures/${id}/image`,
+      {
+        image_data: formattedBase64,
+      },
+      {
+        headers: {
+          "Content-Transfer-Encoding": "base64",
+          "X-Image-Length": formattedBase64.length,
+        },
       }
-    });
-    
+    );
+
     return response.data;
   } catch (error) {
     console.error("API Error Details:", {
@@ -164,7 +173,7 @@ export const replacePhoto = async (id, base64Data) => {
       data: error.response?.data,
       sentLength: base64Data?.length,
       sentStart: base64Data?.slice(0, 50),
-      sentEnd: base64Data?.slice(-50)
+      sentEnd: base64Data?.slice(-50),
     });
     throw error;
   }
@@ -172,7 +181,9 @@ export const replacePhoto = async (id, base64Data) => {
 
 export const getPhotoImage = async (photoId, cacheBuster) => {
   try {
-    const url = `/pictures/${photoId}/image${cacheBuster ? `?v=${cacheBuster}` : ''}`;
+    const url = `/pictures/${photoId}/image${
+      cacheBuster ? `?v=${cacheBuster}` : ""
+    }`;
     const response = await api.get(url, {
       responseType: "blob",
     });
@@ -185,7 +196,9 @@ export const getPhotoImage = async (photoId, cacheBuster) => {
 
 export const getPhotoThumbnail = async (photoId, cacheBuster) => {
   try {
-    const url = `/pictures/${photoId}/thumbnail${cacheBuster ? `?v=${cacheBuster}` : ''}`;
+    const url = `/pictures/${photoId}/thumbnail${
+      cacheBuster ? `?v=${cacheBuster}` : ""
+    }`;
     const response = await api.get(url, {
       responseType: "blob",
     });
@@ -205,21 +218,21 @@ export const convertToJpeg = async (base64Image) => {
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
       const ctx = canvas.getContext("2d");
-      
+
       // Fill with white background first
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0);
-      
+
       // Convert to JPEG with quality 92%
       const jpegBase64 = canvas.toDataURL("image/jpeg", 0.92);
       resolve(jpegBase64);
     };
-    
+
     img.onerror = () => {
       reject(new Error("Failed to load image for conversion"));
     };
-    
+
     img.src = base64Image;
   });
 };
