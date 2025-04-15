@@ -51,7 +51,7 @@ jobs:
               git reset --hard origin/main && \
               git clean -fd; \
             else \
-              git clone https://github.com/haidar-farhat/PhotoMaster.git \"${{ env.APP_DIR }\"; \
+              git clone https://github.com/haidar-farhat/PhotoMaster.git \"${{ env.APP_DIR }}\" \
             fi; \
             ln -sfn \"${{ env.APP_DIR }}/deploy\" ~/deploy && \
             ln -sfn \"${{ env.APP_DIR }}/laravel\" ~/laravel && \
