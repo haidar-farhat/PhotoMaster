@@ -38,12 +38,20 @@ jobs:
 
       - name: Set up Laravel environment
         working-directory: ./laravel
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
         run: |
           cp .env.example .env
           php artisan key:generate
+          php artisan config:clear
 
       - name: Run Laravel tests
         working-directory: ./laravel
+        env:
+          DB_DATABASE: photomaster_test
+          DB_USERNAME: root
+          DB_PASSWORD: password
         run: php artisan test --exclude-group incomplete
 
   react-test:
@@ -57,16 +65,15 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "16"
+          node-version: "18"
 
-      - name: Fix package versions
+      - name: Update package.json
         working-directory: ./electron-react
         run: |
-          sed -i 's/"react": "^19.1.0"/"react": "^18.2.0"/' package.json
-          sed -i 's/"react-dom": "^19.1.0"/"react-dom": "^18.2.0"/' package.json
-          sed -i 's/"react-konva": "^19.0.3"/"react-konva": "^18.2.10"/' package.json
-          sed -i 's/"node": ">= 14.0.0"/"node": ">= 16.0.0"/' package.json || true
-          cat package.json
+          npm pkg set dependencies.react="^18.2.0"
+          npm pkg set dependencies.react-dom="^18.2.0"
+          npm pkg set dependencies.react-konva="^18.2.10"
+          npm pkg set engines.node=">=16.0.0"
 
       - name: NPM diagnostics
         working-directory: ./electron-react
@@ -80,33 +87,24 @@ jobs:
           npm cache clean --force
           npm cache verify
 
-      - name: Install dependencies with timeout
+      - name: Install dependencies
         working-directory: ./electron-react
+        timeout-minutes: 5
         run: |
           rm -rf node_modules package-lock.json
-          # Install with a timeout in case it gets stuck
-          timeout 5m npm install --no-fund --no-audit --loglevel verbose || {
-            echo "NPM install timed out, showing env info and continuing with limited tests"
-            npm -v
-            node -v
-            # Create a simple package.json for testing
-            echo '{"scripts":{"test":"echo \"Skipping tests\" && exit 0","lint":"echo \"Skipping lint\" && exit 0"}}' > simplified-package.json
-            mv simplified-package.json package.json
-          }
+          npm install --no-fund --no-audit
 
       - name: Lint code
-        if: always()
         working-directory: ./electron-react
-        run: npm run lint || echo "Linting failed but continuing"
+        run: npm run lint
 
       - name: Run tests
-        if: always()
         working-directory: ./electron-react
-        run: npm test || echo "Tests failed but continuing"
+        run: npm test
 
   deploy:
     name: Deploy
-    needs: [laravel-test]
+    needs: [laravel-test, react-test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     env:
@@ -120,36 +118,38 @@ jobs:
           mkdir -p deploy
           
           # Create nginx.conf file
-          echo "server {
-    listen 80;
-    server_name 13.39.161.145;
-    root /var/www/photomaster/laravel/public;
+          cat > deploy/nginx.conf << 'EOL'
+          server {
+              listen 80;
+              server_name ${{ env.SERVER_IP }};
+              root /var/www/photomaster/laravel/public;
 
-    add_header X-Frame-Options \"SAMEORIGIN\";
-    add_header X-Content-Type-Options \"nosniff\";
+              add_header X-Frame-Options "SAMEORIGIN";
+              add_header X-Content-Type-Options "nosniff";
 
-    index index.php;
-    charset utf-8;
+              index index.php;
+              charset utf-8;
 
-    location / {
-        try_files \$uri \$uri/ /index.php?\$query_string;
-    }
+              location / {
+                  try_files $uri $uri/ /index.php?$query_string;
+              }
 
-    location = /favicon.ico { access_log off; log_not_found off; }
-    location = /robots.txt  { access_log off; log_not_found off; }
+              location = /favicon.ico { access_log off; log_not_found off; }
+              location = /robots.txt  { access_log off; log_not_found off; }
 
-    error_page 404 /index.php;
+              error_page 404 /index.php;
 
-    location ~ \\.php$ {
-        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
-        include fastcgi_params;
-    }
+              location ~ \.php$ {
+                  fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
+                  fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+                  include fastcgi_params;
+              }
 
-    location ~ /\\.(?!well-known).* {
-        deny all;
-    }
-}" > deploy/nginx.conf
+              location ~ /\.(?!well-known).* {
+                  deny all;
+              }
+          }
+          EOL
           
           # Create PictureTest.php
           cat > deploy/PictureTest.php << 'EOL'
@@ -232,6 +232,8 @@ sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_passwo
 sudo mysql -e "CREATE DATABASE IF NOT EXISTS photomaster;"
 sudo mysql -e "CREATE USER IF NOT EXISTS '${DB_USERNAME}'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';"
 sudo mysql -e "GRANT ALL PRIVILEGES ON photomaster.* TO '${DB_USERNAME}'@'localhost';"
+sudo mysql -e "DROP USER IF EXISTS ''@'localhost'"
+sudo mysql -e "DROP DATABASE IF EXISTS test"
 sudo mysql -e "FLUSH PRIVILEGES;"
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Database configured successfully"
@@ -307,11 +309,11 @@ EOL
           echo "${{ secrets.EC2_PEM_KEY }}" > ~/.ssh/key.pem
           chmod 600 ~/.ssh/key.pem
           ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
-      
+
       - name: Copy scripts to server
         run: |
-          scp -i ~/.ssh/key.pem -r deploy ubuntu@${{ env.SERVER_IP }}:~/
-      
+          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -r deploy ubuntu@${{ env.SERVER_IP }}:~/
+
       - name: Install server requirements
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./setup.sh"
