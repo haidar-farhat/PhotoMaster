@@ -11,7 +11,7 @@ jobs:
   laravel-test:
     name: Laravel Test
     runs-on: ubuntu-latest
-    
+
     services:
       mysql:
         image: mysql:8.0
@@ -21,27 +21,27 @@ jobs:
         ports:
           - 3306:3306
         options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          php-version: "8.1"
           tools: composer:v2
           extensions: mbstring, pdo_mysql, xml, zip, curl, gd
-      
+
       - name: Install Laravel dependencies
         working-directory: ./laravel
         run: composer install --no-progress --no-interaction
-      
+
       - name: Set up Laravel environment
         working-directory: ./laravel
         run: |
           cp .env.example .env
           php artisan key:generate
-      
+
       - name: Run Laravel tests
         working-directory: ./laravel
         run: php artisan test
@@ -49,32 +49,32 @@ jobs:
   react-test:
     name: React Test
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
-      
+          node-version: "18"
+
       - name: Fix package versions
         working-directory: ./electron-react
         run: |
           sed -i 's/"react": "^19.1.0"/"react": "^18.2.0"/' package.json
           sed -i 's/"react-dom": "^19.1.0"/"react-dom": "^18.2.0"/' package.json
           sed -i 's/"react-konva": "^19.0.3"/"react-konva": "^18.2.10"/' package.json
-      
+
       - name: Install dependencies
         working-directory: ./electron-react
         run: |
           rm -rf node_modules package-lock.json
           npm install
-      
+
       - name: Lint code
         working-directory: ./electron-react
         run: npm run lint
-      
+
       - name: Run tests
         working-directory: ./electron-react
         run: npm test
@@ -86,214 +86,204 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SERVER_IP: 13.39.161.145
-    
+
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Create Nginx config
+
+      - name: Create deployment files
         run: |
           mkdir -p deploy
-          cat > deploy/nginx.conf << 'EOF'
-server {
-    listen 80;
-    server_name 13.39.161.145;
-    root /var/www/photomaster/laravel/public;
 
-    add_header X-Frame-Options "SAMEORIGIN";
-    add_header X-Content-Type-Options "nosniff";
+          # Create nginx.conf file
+          echo 'server {' > deploy/nginx.conf
+          echo '    listen 80;' >> deploy/nginx.conf
+          echo '    server_name 13.39.161.145;' >> deploy/nginx.conf
+          echo '    root /var/www/photomaster/laravel/public;' >> deploy/nginx.conf
+          echo '' >> deploy/nginx.conf
+          echo '    add_header X-Frame-Options "SAMEORIGIN";' >> deploy/nginx.conf
+          echo '    add_header X-Content-Type-Options "nosniff";' >> deploy/nginx.conf
+          echo '' >> deploy/nginx.conf
+          echo '    index index.php;' >> deploy/nginx.conf
+          echo '    charset utf-8;' >> deploy/nginx.conf
+          echo '' >> deploy/nginx.conf
+          echo '    location / {' >> deploy/nginx.conf
+          echo '        try_files $uri $uri/ /index.php?$query_string;' >> deploy/nginx.conf
+          echo '    }' >> deploy/nginx.conf
+          echo '' >> deploy/nginx.conf
+          echo '    location = /favicon.ico { access_log off; log_not_found off; }' >> deploy/nginx.conf
+          echo '    location = /robots.txt  { access_log off; log_not_found off; }' >> deploy/nginx.conf
+          echo '' >> deploy/nginx.conf
+          echo '    error_page 404 /index.php;' >> deploy/nginx.conf
+          echo '' >> deploy/nginx.conf
+          echo '    location ~ \.php$ {' >> deploy/nginx.conf
+          echo '        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;' >> deploy/nginx.conf
+          echo '        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;' >> deploy/nginx.conf
+          echo '        include fastcgi_params;' >> deploy/nginx.conf
+          echo '    }' >> deploy/nginx.conf
+          echo '' >> deploy/nginx.conf
+          echo '    location ~ /\.(?!well-known).* {' >> deploy/nginx.conf
+          echo '        deny all;' >> deploy/nginx.conf
+          echo '    }' >> deploy/nginx.conf
+          echo '}' >> deploy/nginx.conf
 
-    index index.php;
-    charset utf-8;
+          # Create setup.sh script
+          echo '#!/bin/bash' > deploy/setup.sh
+          echo 'set -e' >> deploy/setup.sh
+          echo '' >> deploy/setup.sh
+          echo '# Logging function' >> deploy/setup.sh
+          echo 'log() {' >> deploy/setup.sh
+          echo '  echo "[$(date '"'"'+%Y-%m-%d %H:%M:%S'"'"')] $1"' >> deploy/setup.sh
+          echo '}' >> deploy/setup.sh
+          echo '' >> deploy/setup.sh
+          echo 'log "Starting server setup"' >> deploy/setup.sh
+          echo '' >> deploy/setup.sh
+          echo '# Update system packages' >> deploy/setup.sh
+          echo 'log "Updating packages"' >> deploy/setup.sh
+          echo 'sudo apt-get update' >> deploy/setup.sh
+          echo 'sudo apt-get install -y nginx mysql-server php8.1-fpm php8.1-cli php8.1-mysql \' >> deploy/setup.sh
+          echo '  php8.1-mbstring php8.1-xml php8.1-zip php8.1-curl php8.1-gd php8.1-bcmath \' >> deploy/setup.sh
+          echo '  php8.1-intl php8.1-soap php8.1-redis php8.1-common php8.1-json php8.1-opcache \' >> deploy/setup.sh
+          echo '  curl git unzip nodejs npm redis-server' >> deploy/setup.sh
+          echo '' >> deploy/setup.sh
+          echo '# Install Composer' >> deploy/setup.sh
+          echo 'log "Installing Composer"' >> deploy/setup.sh
+          echo 'if ! command -v composer &> /dev/null; then' >> deploy/setup.sh
+          echo '  curl -sS https://getcomposer.org/installer | sudo php -- --install-dir=/usr/local/bin --filename=composer' >> deploy/setup.sh
+          echo 'fi' >> deploy/setup.sh
+          echo '' >> deploy/setup.sh
+          echo '# Configure PHP' >> deploy/setup.sh
+          echo 'log "Configuring PHP"' >> deploy/setup.sh
+          echo 'sudo sed -i '"'"'s/memory_limit = .*/memory_limit = 512M/'"'"' /etc/php/8.1/fpm/php.ini' >> deploy/setup.sh
+          echo 'sudo sed -i '"'"'s/upload_max_filesize = .*/upload_max_filesize = 64M/'"'"' /etc/php/8.1/fpm/php.ini' >> deploy/setup.sh
+          echo 'sudo sed -i '"'"'s/post_max_size = .*/post_max_size = 64M/'"'"' /etc/php/8.1/fpm/php.ini' >> deploy/setup.sh
+          echo '' >> deploy/setup.sh
+          echo 'log "Setup completed successfully"' >> deploy/setup.sh
 
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
+          # Create database.sh script
+          echo '#!/bin/bash' > deploy/database.sh
+          echo 'set -e' >> deploy/database.sh
+          echo '' >> deploy/database.sh
+          echo '# Logging function' >> deploy/database.sh
+          echo 'log() {' >> deploy/database.sh
+          echo '  echo "[$(date '"'"'+%Y-%m-%d %H:%M:%S'"'"')] $1"' >> deploy/database.sh
+          echo '}' >> deploy/database.sh
+          echo '' >> deploy/database.sh
+          echo 'DB_ROOT_PASSWORD="$1"' >> deploy/database.sh
+          echo 'DB_USERNAME="$2"' >> deploy/database.sh
+          echo 'DB_PASSWORD="$3"' >> deploy/database.sh
+          echo '' >> deploy/database.sh
+          echo 'log "Configuring MySQL"' >> deploy/database.sh
+          echo 'sudo mysql -e "ALTER USER '"'"'root'"'"'@'"'"'localhost'"'"' IDENTIFIED WITH mysql_native_password BY '"'"'${DB_ROOT_PASSWORD}'"'"';"' >> deploy/database.sh
+          echo 'sudo mysql -e "CREATE DATABASE IF NOT EXISTS photomaster;"' >> deploy/database.sh
+          echo 'sudo mysql -e "CREATE USER IF NOT EXISTS '"'"'${DB_USERNAME}'"'"'@'"'"'localhost'"'"' IDENTIFIED BY '"'"'${DB_PASSWORD}'"'"';"' >> deploy/database.sh
+          echo 'sudo mysql -e "GRANT ALL PRIVILEGES ON photomaster.* TO '"'"'${DB_USERNAME}'"'"'@'"'"'localhost'"'"';"' >> deploy/database.sh
+          echo 'sudo mysql -e "FLUSH PRIVILEGES;"' >> deploy/database.sh
+          echo '' >> deploy/database.sh
+          echo 'log "Database configured successfully"' >> deploy/database.sh
 
-    location = /favicon.ico { access_log off; log_not_found off; }
-    location = /robots.txt  { access_log off; log_not_found off; }
+          # Create app.sh script
+          echo '#!/bin/bash' > deploy/app.sh
+          echo 'set -e' >> deploy/app.sh
+          echo '' >> deploy/app.sh
+          echo '# Logging function' >> deploy/app.sh
+          echo 'log() {' >> deploy/app.sh
+          echo '  echo "[$(date '"'"'+%Y-%m-%d %H:%M:%S'"'"')] $1"' >> deploy/app.sh
+          echo '}' >> deploy/app.sh
+          echo '' >> deploy/app.sh
+          echo 'DB_USERNAME="$1"' >> deploy/app.sh
+          echo 'DB_PASSWORD="$2"' >> deploy/app.sh
+          echo 'REPO_URL="$3"' >> deploy/app.sh
+          echo '' >> deploy/app.sh
+          echo '# Setup application directory' >> deploy/app.sh
+          echo 'log "Setting up application directory"' >> deploy/app.sh
+          echo 'sudo mkdir -p /var/www/photomaster' >> deploy/app.sh
+          echo 'sudo chown -R ubuntu:ubuntu /var/www/photomaster' >> deploy/app.sh
+          echo '' >> deploy/app.sh
+          echo '# Clone repository' >> deploy/app.sh
+          echo 'log "Cloning repository"' >> deploy/app.sh
+          echo 'cd /var/www/photomaster' >> deploy/app.sh
+          echo '' >> deploy/app.sh
+          echo 'if [ -d ".git" ]; then' >> deploy/app.sh
+          echo '  git fetch --all' >> deploy/app.sh
+          echo '  git reset --hard origin/main' >> deploy/app.sh
+          echo 'else' >> deploy/app.sh
+          echo '  cd /var/www' >> deploy/app.sh
+          echo '  sudo rm -rf photomaster' >> deploy/app.sh
+          echo '  git clone "$REPO_URL" photomaster' >> deploy/app.sh
+          echo '  cd photomaster' >> deploy/app.sh
+          echo '  git checkout main' >> deploy/app.sh
+          echo 'fi' >> deploy/app.sh
+          echo '' >> deploy/app.sh
+          echo '# Deploy Laravel' >> deploy/app.sh
+          echo 'log "Deploying Laravel"' >> deploy/app.sh
+          echo 'cd /var/www/photomaster/laravel' >> deploy/app.sh
+          echo 'composer install --no-dev --optimize-autoloader' >> deploy/app.sh
+          echo '' >> deploy/app.sh
+          echo '# Setup environment' >> deploy/app.sh
+          echo 'cp .env.example .env' >> deploy/app.sh
+          echo 'sed -i "s/DB_DATABASE=.*/DB_DATABASE=photomaster/" .env' >> deploy/app.sh
+          echo 'sed -i "s/DB_USERNAME=.*/DB_USERNAME=${DB_USERNAME}/" .env' >> deploy/app.sh
+          echo 'sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=${DB_PASSWORD}/" .env' >> deploy/app.sh
+          echo 'php artisan key:generate' >> deploy/app.sh
+          echo 'php artisan migrate --force' >> deploy/app.sh
+          echo 'php artisan config:cache' >> deploy/app.sh
+          echo 'php artisan route:cache' >> deploy/app.sh
+          echo 'php artisan view:cache' >> deploy/app.sh
+          echo '' >> deploy/app.sh
+          echo '# Deploy React' >> deploy/app.sh
+          echo 'log "Deploying React"' >> deploy/app.sh
+          echo 'cd /var/www/photomaster/electron-react' >> deploy/app.sh
+          echo 'npm install' >> deploy/app.sh
+          echo 'npm run build' >> deploy/app.sh
+          echo '' >> deploy/app.sh
+          echo '# Set permissions' >> deploy/app.sh
+          echo 'log "Setting permissions"' >> deploy/app.sh
+          echo 'sudo chown -R www-data:www-data /var/www/photomaster' >> deploy/app.sh
+          echo 'sudo chmod -R 755 /var/www/photomaster' >> deploy/app.sh
+          echo 'sudo chmod -R 775 /var/www/photomaster/laravel/storage /var/www/photomaster/laravel/bootstrap/cache' >> deploy/app.sh
+          echo '' >> deploy/app.sh
+          echo '# Restart services' >> deploy/app.sh
+          echo 'log "Restarting services"' >> deploy/app.sh
+          echo 'sudo systemctl restart php8.1-fpm nginx mysql redis-server' >> deploy/app.sh
+          echo 'sudo systemctl enable php8.1-fpm nginx mysql redis-server' >> deploy/app.sh
+          echo '' >> deploy/app.sh
+          echo 'log "Deployment completed successfully at $(date)"' >> deploy/app.sh
 
-    error_page 404 /index.php;
+          chmod +x deploy/setup.sh deploy/database.sh deploy/app.sh
 
-    location ~ \.php$ {
-        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-
-    location ~ /\.(?!well-known).* {
-        deny all;
-    }
-}
-EOF
-      
-      - name: Create deployment script
-        run: |
-          cat > deploy/setup.sh << 'EOF'
-#!/bin/bash
-set -e
-
-# Logging function
-log() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-}
-
-log "Starting server setup"
-
-# Update system packages
-log "Updating packages"
-sudo apt-get update
-sudo apt-get install -y nginx mysql-server php8.1-fpm php8.1-cli php8.1-mysql \
-  php8.1-mbstring php8.1-xml php8.1-zip php8.1-curl php8.1-gd php8.1-bcmath \
-  php8.1-intl php8.1-soap php8.1-redis php8.1-common php8.1-json php8.1-opcache \
-  curl git unzip nodejs npm redis-server
-
-# Install Composer
-log "Installing Composer"
-if ! command -v composer &> /dev/null; then
-  curl -sS https://getcomposer.org/installer | sudo php -- --install-dir=/usr/local/bin --filename=composer
-fi
-
-# Configure PHP
-log "Configuring PHP"
-sudo sed -i 's/memory_limit = .*/memory_limit = 512M/' /etc/php/8.1/fpm/php.ini
-sudo sed -i 's/upload_max_filesize = .*/upload_max_filesize = 64M/' /etc/php/8.1/fpm/php.ini
-sudo sed -i 's/post_max_size = .*/post_max_size = 64M/' /etc/php/8.1/fpm/php.ini
-
-log "Setup completed successfully"
-EOF
-          chmod +x deploy/setup.sh
-      
-      - name: Create database script
-        run: |
-          cat > deploy/database.sh << 'EOF'
-#!/bin/bash
-set -e
-
-# Logging function
-log() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-}
-
-DB_ROOT_PASSWORD="$1"
-DB_USERNAME="$2"
-DB_PASSWORD="$3"
-
-log "Configuring MySQL"
-sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_ROOT_PASSWORD}';"
-sudo mysql -e "CREATE DATABASE IF NOT EXISTS photomaster;"
-sudo mysql -e "CREATE USER IF NOT EXISTS '${DB_USERNAME}'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';"
-sudo mysql -e "GRANT ALL PRIVILEGES ON photomaster.* TO '${DB_USERNAME}'@'localhost';"
-sudo mysql -e "FLUSH PRIVILEGES;"
-
-log "Database configured successfully"
-EOF
-          chmod +x deploy/database.sh
-      
-      - name: Create application deployment script
-        run: |
-          cat > deploy/app.sh << 'EOF'
-#!/bin/bash
-set -e
-
-# Logging function
-log() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-}
-
-DB_USERNAME="$1"
-DB_PASSWORD="$2"
-REPO_URL="$3"
-
-# Setup application directory
-log "Setting up application directory"
-sudo mkdir -p /var/www/photomaster
-sudo chown -R ubuntu:ubuntu /var/www/photomaster
-
-# Clone repository
-log "Cloning repository"
-cd /var/www/photomaster
-
-if [ -d ".git" ]; then
-  git fetch --all
-  git reset --hard origin/main
-else
-  cd /var/www
-  sudo rm -rf photomaster
-  git clone "$REPO_URL" photomaster
-  cd photomaster
-  git checkout main
-fi
-
-# Deploy Laravel
-log "Deploying Laravel"
-cd /var/www/photomaster/laravel
-composer install --no-dev --optimize-autoloader
-
-# Setup environment
-cp .env.example .env
-sed -i "s/DB_DATABASE=.*/DB_DATABASE=photomaster/" .env
-sed -i "s/DB_USERNAME=.*/DB_USERNAME=${DB_USERNAME}/" .env
-sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=${DB_PASSWORD}/" .env
-php artisan key:generate
-php artisan migrate --force
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
-
-# Deploy React
-log "Deploying React"
-cd /var/www/photomaster/electron-react
-npm install
-npm run build
-
-# Set permissions
-log "Setting permissions"
-sudo chown -R www-data:www-data /var/www/photomaster
-sudo chmod -R 755 /var/www/photomaster
-sudo chmod -R 775 /var/www/photomaster/laravel/storage /var/www/photomaster/laravel/bootstrap/cache
-
-# Restart services
-log "Restarting services"
-sudo systemctl restart php8.1-fpm nginx mysql redis-server
-sudo systemctl enable php8.1-fpm nginx mysql redis-server
-
-log "Deployment completed successfully at $(date)"
-EOF
-          chmod +x deploy/app.sh
-      
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_PEM_KEY }}" > ~/.ssh/key.pem
           chmod 600 ~/.ssh/key.pem
           ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
-      
+
       - name: Copy scripts to server
         run: |
           scp -i ~/.ssh/key.pem -r deploy ubuntu@${{ env.SERVER_IP }}:~/
-      
+
       - name: Install server requirements
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./setup.sh"
-      
+
       - name: Configure Nginx
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "sudo cp ~/deploy/nginx.conf /etc/nginx/sites-available/photomaster && sudo ln -sf /etc/nginx/sites-available/photomaster /etc/nginx/sites-enabled/ && sudo rm -f /etc/nginx/sites-enabled/default && sudo nginx -t && sudo systemctl restart nginx"
-      
+
       - name: Setup database
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./database.sh '${{ secrets.DB_ROOT_PASSWORD }}' '${{ secrets.DB_USERNAME }}' '${{ secrets.DB_PASSWORD }}'"
-      
+
       - name: Deploy application
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./app.sh '${{ secrets.DB_USERNAME }}' '${{ secrets.DB_PASSWORD }}' 'https://github.com/${{ github.repository }}.git'"
-      
+
       - name: Cleanup
         if: always()
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "rm -rf ~/deploy"
           rm -f ~/.ssh/key.pem
-      
+
       - name: Notify on failure
         if: failure()
         uses: actions/github-script@v6
