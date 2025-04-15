@@ -27,43 +27,105 @@ jobs:
       - name: Test SSH Connection
         run: |
           echo "Testing SSH connection..."
-          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@${{ env.SERVER_IP }} "echo Connection successful"
+          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} "echo Connection successful"
 
-      - name: Prepare Deployment Directory
+      - name: Copy All Deployment Files
         run: |
-          echo "Creating deployment directories on server..."
-          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} "mkdir -p ~/deploy ~/laravel ~/electron-react"
-
-      - name: Copy Essential Files Only
-        run: |
-          # Copy only essential deployment files
+          # Copy deployment scripts and configs
           echo "Copying deployment files..."
-          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -v deploy/*.sh deploy/docker-compose.yml deploy/nginx.conf ubuntu@${{ env.SERVER_IP }}:~/deploy/
+          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no deploy/*.sh deploy/docker-compose.yml deploy/nginx.conf ubuntu@${{ env.SERVER_IP }}:~/deploy/
 
-          # Copy only essential Laravel files
-          echo "Copying essential Laravel files..."
-          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -r laravel/app ubuntu@${{ env.SERVER_IP }}:~/laravel/
-          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no laravel/composer.json laravel/composer.lock ubuntu@${{ env.SERVER_IP }}:~/laravel/
+          # Copy Dockerfiles
+          echo "Copying Dockerfiles..."
+          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no laravel/Dockerfile ubuntu@${{ env.SERVER_IP }}:~/laravel/
+          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no electron-react/Dockerfile ubuntu@${{ env.SERVER_IP }}:~/electron-react/
+          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no electron-react/nginx/default.conf ubuntu@${{ env.SERVER_IP }}:~/electron-react/nginx/default.conf
 
-          # Copy only essential React files
-          echo "Copying essential React files..."
-          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -r electron-react/src ubuntu@${{ env.SERVER_IP }}:~/electron-react/
-          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no electron-react/package.json electron-react/package-lock.json ubuntu@${{ env.SERVER_IP }}:~/electron-react/
-
-      - name: Execute Remote Commands
+      - name: Setup Server Environment
         run: |
-          echo "Running deployment commands..."
+          echo "Setting up server environment..."
+          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} <<EOF
+            # Install Docker if not already installed
+            if ! command -v docker &> /dev/null; then
+              echo "Installing Docker..."
+              sudo apt-get update
+              sudo apt-get install -y ca-certificates curl gnupg
+              sudo install -m 0755 -d /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+              sudo chmod a+r /etc/apt/keyrings/docker.gpg
+              echo "deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \$(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+              sudo apt-get update
+              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+              sudo usermod -aG docker \$USER
+            fi
+            
+            # Install Docker Compose if not already installed
+            if ! command -v docker-compose &> /dev/null; then
+              echo "Installing Docker Compose..."
+              sudo curl -L "https://github.com/docker/compose/releases/download/v2.18.1/docker-compose-\$(uname -s)-\$(uname -m)" -o /usr/local/bin/docker-compose
+              sudo chmod +x /usr/local/bin/docker-compose
+            fi
+            
+            # Create required directories
+            echo "Creating directories..."
+            sudo mkdir -p /var/www/photomaster/laravel/storage
+            sudo mkdir -p /var/www/photomaster/laravel/bootstrap/cache
+            sudo mkdir -p /var/www/photomaster/electron-react/build
+            sudo mkdir -p /var/www/photomaster/electron-react/nginx
+            
+            # Set permissions
+            echo "Setting permissions..."
+            sudo chown -R www-data:www-data /var/www/photomaster
+            sudo chmod -R 775 /var/www/photomaster/laravel/storage
+            sudo chmod -R 775 /var/www/photomaster/laravel/bootstrap/cache
+            
+            # Make deployment scripts executable
+            echo "Making scripts executable..."
+            cd ~/deploy
+            chmod +x *.sh
+          EOF
+
+      - name: Run Setup Scripts
+        run: |
+          echo "Running setup scripts..."
           ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} <<EOF
             cd ~/deploy
-            echo "Current directory: \$(pwd)"
-            echo "Files in current directory: \$(ls -la)"
-            echo "Setting up environment..."
-            chmod +x *.sh
-            # Skip docker-compose operations for now
-            # docker-compose down
-            # docker-compose up -d
-            echo "Deployment completed successfully"
+            ./setup.sh
+            # Only run database setup if needed (first deployment)
+            if [ ! -f ~/.db_setup_complete ]; then
+              ./database.sh "${{ secrets.DB_ROOT_PASSWORD }}" "${{ secrets.DB_USERNAME }}" "${{ secrets.DB_PASSWORD }}"
+              touch ~/.db_setup_complete
+            fi
+            ./app.sh "${{ secrets.DB_USERNAME }}" "${{ secrets.DB_PASSWORD }}"
           EOF
+
+      - name: Build and Deploy Docker Containers
+        run: |
+          echo "Building and deploying Docker containers..."
+          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} <<EOF
+            cd ~/deploy
+            export DB_USERNAME=${{ secrets.DB_USERNAME }}
+            export DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            export DB_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
+            
+            # Pull latest Docker images
+            sudo docker-compose pull
+            
+            # Stop and remove existing containers
+            sudo docker-compose down
+            
+            # Start new containers
+            sudo docker-compose up -d
+            
+            # Check container status
+            sudo docker-compose ps
+          EOF
+
+      - name: Deployment Summary
+        run: |
+          echo "Deployment completed successfully!"
+          echo "Server: ${{ env.SERVER_IP }}"
+          echo "Timestamp: $(date)"
 
       - name: Cleanup SSH Key
         if: always()
