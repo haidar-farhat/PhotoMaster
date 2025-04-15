@@ -8,32 +8,68 @@ on:
   workflow_dispatch:
 
 env:
-  SERVER_IP: 13.39.161.145
+  SERVER_IP: 52.47.95.15
   APP_DIR: ~/PhotoMaster
   # DEPLOY_DIR is less relevant now as we cd directly
 
 jobs:
-  deploy:
-    name: Production Deployment
+  build:
+    name: Build Docker Images
     runs-on: ubuntu-latest
-    permissions:
-      issues: write
-
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Validate Secrets
+      - name: Build Laravel Image
         run: |
-          if [ -z "${{ secrets.EC2_PEM_KEY }}" ]; then
-            echo "::error::Missing EC2_PEM_KEY secret"
-            exit 1
-          fi
-          if [ -z "${{ secrets.DB_ROOT_PASSWORD }}" ]; then echo "::error::Missing DB_ROOT_PASSWORD secret"; exit 1; fi
-          if [ -z "${{ secrets.DB_USERNAME }}" ]; then echo "::error::Missing DB_USERNAME secret"; exit 1; fi
-          if [ -z "${{ secrets.DB_PASSWORD }}" ]; then echo "::error::Missing DB_PASSWORD secret"; exit 1; fi
-          echo "✓ Secrets validation passed"
+          docker build \
+            --memory 1GB \
+            --cpuset-cpus 0 \
+            -t photomaster-laravel:latest \
+            -f laravel/Dockerfile \
+            --target production \
+            laravel
+
+      - name: Build React Image
+        run: |
+          docker build \
+            --memory 1GB \
+            --cpuset-cpus 0 \
+            -t photomaster-react:latest \
+            -f electron-react/Dockerfile \
+            --target production \
+            electron-react
+
+      - name: Save Docker Images
+        run: |
+          mkdir -p docker-images
+          docker save photomaster-laravel:latest -o docker-images/laravel.tar
+          docker save photomaster-react:latest -o docker-images/react.tar
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: docker-images
+          path: docker-images/*.tar
+
+  deploy:
+    name: Deploy to Server
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: docker-images
+          path: docker-images
+
+      - name: Load Docker Images
+        run: |
+          docker load -i docker-images/laravel.tar
+          docker load -i docker-images/react.tar
 
       - name: Configure SSH Connection
         run: |
@@ -59,60 +95,39 @@ jobs:
             else
               git clone https://github.com/haidar-farhat/PhotoMaster.git \"${{ env.APP_DIR }}\"
             fi;
-            # Symlinks might still be useful for manual server access, keep them for now
             ln -sfn \"${{ env.APP_DIR }}/deploy\" ~/deploy &&
             ln -sfn \"${{ env.APP_DIR }}/laravel\" ~/laravel &&
             ln -sfn \"${{ env.APP_DIR }}/electron-react\" ~/electron-react"
 
-      - name: Create .env File for Docker Compose
+      - name: Create .env File
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
             "set -eo pipefail;
             cd \"${{ env.APP_DIR }}/deploy\" &&
-            echo 'Creating .env file...' &&
             echo \"DB_ROOT_PASSWORD=\\\"${{ secrets.DB_ROOT_PASSWORD }}\\\"\" > .env &&
             echo \"DB_USERNAME=\\\"${{ secrets.DB_USERNAME }}\\\"\" >> .env &&
-            echo \"DB_PASSWORD=\\\"${{ secrets.DB_PASSWORD }}\\\"\" >> .env &&
-            echo '.env file created successfully.'"
+            echo \"DB_PASSWORD=\\\"${{ secrets.DB_PASSWORD }}\\\"\" >> .env"
 
-      - name: Deploy Docker Services (Build & Start)
+      - name: Transfer Docker Images
+        run: |
+          scp -i ~/.ssh/key.pem docker-images/*.tar ubuntu@${{ env.SERVER_IP }}:~/docker-images/
+
+      - name: Deploy Services
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
             "set -eo pipefail;
             cd \"${{ env.APP_DIR }}/deploy\" &&
-            # Build images
-            docker build -t photomaster-laravel:latest \
-              -f \"../laravel/Dockerfile\" --target production \"../laravel\" &&
-            docker build -t photomaster-react:latest \
-              -f \"../electron-react/Dockerfile\" --target production \"../electron-react\" &&
-            # Stop existing services and start new ones
-            docker-compose down --timeout 30 &&
-            docker-compose up -d --force-recreate &&
-            docker-compose ps --all"
-
-      - name: Execute Post-Deployment Scripts (Laravel Setup)
-        run: |
-          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
-            "set -eo pipefail;
-            cd \"${{ env.APP_DIR }}/deploy\" &&
-            # Database is initialized automatically by the mysql container on first run
-            # We still touch the flag file to prevent potential future re-initialization attempts
-            if [ ! -f ~/.db_initialized ]; then
-              echo 'Marking database as initialized (handled by mysql container).'
-              touch ~/.db_initialized;
-            fi &&
-            # Run Laravel setup commands inside the running container
-            echo 'Running Laravel setup commands...' &&
-            docker-compose exec -T laravel bash -c ' \
-              set -e && \
-              cd /var/www/html && \
-              php artisan key:generate --force && \
-              php artisan config:cache && \
-              php artisan route:cache && \
-              php artisan view:cache && \
-              php artisan migrate --force \
-            ' &&
-            echo 'Laravel setup commands executed successfully.'"
+            docker load -i ~/docker-images/laravel.tar &&
+            docker load -i ~/docker-images/react.tar &&
+            docker-compose down --timeout 60 &&
+            sleep 30 &&
+            docker-compose up -d --no-build &&
+            sleep 30 &&
+            docker-compose exec -T laravel bash -c '
+              cd /var/www/html &&
+              php artisan key:generate --force &&
+              php artisan migrate --force
+            '"
 
       - name: Verify Deployment
         run: |
