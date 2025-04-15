@@ -32,6 +32,7 @@ jobs:
           php-version: '8.1'
           extensions: mbstring, dom, fileinfo, mysql
           coverage: xdebug
+          tools: composer:v2
       
       - name: Install Laravel Dependencies
         working-directory: ./laravel
@@ -59,6 +60,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: false
       
       - name: Fix package versions
         working-directory: ./electron-react
