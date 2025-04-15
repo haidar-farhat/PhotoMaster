@@ -74,8 +74,7 @@ RUN chown -R www-data:www-data /var/www/html \
     && chmod -R 755 /var/www/html/storage \
     && chmod -R 755 /var/www/html/bootstrap/cache
 
-# Generate the application key
-RUN php artisan key:generate --force
+# Application key will be generated during deployment
 
 # Cache configuration and routes
 RUN php artisan config:cache \
