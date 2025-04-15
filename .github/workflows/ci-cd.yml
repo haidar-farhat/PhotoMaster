@@ -120,7 +120,7 @@ jobs:
           mkdir -p deploy
           
           # Create nginx.conf file
-          cat > deploy/nginx.conf << EOL
+          cat > deploy/nginx.conf << 'EOL'
 server {
     listen 80;
     server_name 13.39.161.145;
