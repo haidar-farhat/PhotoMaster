@@ -47,17 +47,17 @@ jobs:
       - name: Synchronize Application Code
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
-            "set -eo pipefail; \
-            if [ -d \"${{ env.APP_DIR }}\" ]; then \
-              cd \"${{ env.APP_DIR }}\" && \
-              git fetch origin && \
-              git reset --hard origin/main && \
-              git clean -fd; \
-            else \
-              git clone https://github.com/haidar-farhat/PhotoMaster.git \"${{ env.APP_DIR }}\" \
-            fi; \
-            ln -sfn \"${{ env.APP_DIR }}/deploy\" ~/deploy && \
-            ln -sfn \"${{ env.APP_DIR }}/laravel\" ~/laravel && \
+            "set -eo pipefail;
+            if [ -d \"${{ env.APP_DIR }}\" ]; then
+              cd \"${{ env.APP_DIR }}\" &&
+              git fetch origin &&
+              git reset --hard origin/main &&
+              git clean -fd;
+            else
+              git clone https://github.com/haidar-farhat/PhotoMaster.git \"${{ env.APP_DIR }}\"
+            fi;
+            ln -sfn \"${{ env.APP_DIR }}/deploy\" ~/deploy &&
+            ln -sfn \"${{ env.APP_DIR }}/laravel\" ~/laravel &&
             ln -sfn \"${{ env.APP_DIR }}/electron-react\" ~/electron-react"
 
       - name: Execute Deployment Scripts
