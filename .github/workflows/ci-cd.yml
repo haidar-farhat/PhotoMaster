@@ -109,7 +109,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SERVER_IP: 13.39.161.145
-
     steps:
       - uses: actions/checkout@v4
 
@@ -117,11 +116,11 @@ jobs:
         run: |
           mkdir -p deploy
           
-          # Create nginx.conf file using a heredoc
-          cat > deploy/nginx.conf <<'EOF'
+          # Create nginx.conf using a heredoc with a flush-left EOF marker.
+          cat > deploy/nginx.conf <<EOF
 server {
     listen 80;
-    server_name ${{ env.SERVER_IP }};
+    server_name ${SERVER_IP};
     root /var/www/photomaster/laravel/public;
 
     add_header X-Frame-Options "SAMEORIGIN";
@@ -151,7 +150,7 @@ server {
 }
 EOF
           # Create PictureTest.php
-          cat > deploy/PictureTest.php << 'EOL'
+          cat > deploy/PictureTest.php <<'EOL'
 <?php
 
 namespace Tests\Feature;
@@ -188,7 +187,7 @@ class PictureTest extends TestCase
 }
 EOL
           # Create setup.sh
-          cat > deploy/setup.sh << 'EOL'
+          cat > deploy/setup.sh <<'EOL'
 #!/bin/bash
 set -e
 
@@ -216,7 +215,7 @@ sudo sed -i 's/post_max_size = .*/post_max_size = 64M/' /etc/php/8.1/fpm/php.ini
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Setup completed successfully"
 EOL
           # Create database.sh
-          cat > deploy/database.sh << 'EOL'
+          cat > deploy/database.sh <<'EOL'
 #!/bin/bash
 set -e
 
@@ -236,7 +235,7 @@ sudo mysql -e "FLUSH PRIVILEGES;"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Database configured successfully"
 EOL
           # Create app.sh
-          cat > deploy/app.sh << 'EOL'
+          cat > deploy/app.sh <<'EOL'
 #!/bin/bash
 set -e
 
@@ -296,9 +295,9 @@ sudo systemctl enable php8.1-fpm nginx mysql redis-server
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deployment completed successfully at $(date)"
 EOL
-          
+
           chmod +x deploy/setup.sh deploy/database.sh deploy/app.sh
-      
+
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
@@ -307,31 +306,26 @@ EOL
           ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
 
       - name: Copy scripts to server
-        run: |
-          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -r deploy ubuntu@${{ env.SERVER_IP }}:~/
+        run: scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -r deploy ubuntu@${{ env.SERVER_IP }}:~/
 
       - name: Install server requirements
-        run: |
-          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./setup.sh"
-      
+        run: ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./setup.sh"
+
       - name: Configure Nginx
-        run: |
-          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "sudo cp ~/deploy/nginx.conf /etc/nginx/sites-available/photomaster && sudo ln -sf /etc/nginx/sites-available/photomaster /etc/nginx/sites-enabled/ && sudo rm -f /etc/nginx/sites-enabled/default && sudo nginx -t && sudo systemctl restart nginx"
-      
+        run: ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "sudo cp ~/deploy/nginx.conf /etc/nginx/sites-available/photomaster && sudo ln -sf /etc/nginx/sites-available/photomaster /etc/nginx/sites-enabled/ && sudo rm -f /etc/nginx/sites-enabled/default && sudo nginx -t && sudo systemctl restart nginx"
+
       - name: Setup database
-        run: |
-          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./database.sh '${{ secrets.DB_ROOT_PASSWORD }}' '${{ secrets.DB_USERNAME }}' '${{ secrets.DB_PASSWORD }}'"
-      
+        run: ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./database.sh '${{ secrets.DB_ROOT_PASSWORD }}' '${{ secrets.DB_USERNAME }}' '${{ secrets.DB_PASSWORD }}'"
+
       - name: Deploy application
-        run: |
-          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./app.sh '${{ secrets.DB_USERNAME }}' '${{ secrets.DB_PASSWORD }}' 'https://github.com/${{ github.repository }}.git'"
-      
+        run: ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./app.sh '${{ secrets.DB_USERNAME }}' '${{ secrets.DB_PASSWORD }}' 'https://github.com/${{ github.repository }}.git'"
+
       - name: Cleanup
         if: always()
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "rm -rf ~/deploy"
           rm -f ~/.ssh/key.pem
-      
+
       - name: Notify on failure
         if: failure()
         uses: actions/github-script@v6
