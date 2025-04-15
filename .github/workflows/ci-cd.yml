@@ -32,11 +32,11 @@ jobs:
           tools: composer:v2
           extensions: mbstring, pdo_mysql, xml, zip, curl, gd
 
-      - name: Install Laravel dependencies
+      - name: Install Laravel Dependencies
         working-directory: ./laravel
         run: composer install --no-progress --no-interaction
 
-      - name: Set up Laravel environment
+      - name: Prepare Laravel Environment
         working-directory: ./laravel
         env:
           DB_HOST: 127.0.0.1
@@ -46,7 +46,7 @@ jobs:
           php artisan key:generate
           php artisan config:clear
 
-      - name: Run Laravel tests
+      - name: Run Laravel Tests
         working-directory: ./laravel
         env:
           DB_DATABASE: photomaster_test
@@ -67,7 +67,7 @@ jobs:
         with:
           node-version: "18"
 
-      - name: Update package.json
+      - name: Update package.json Versions
         working-directory: ./electron-react
         run: |
           npm pkg set dependencies.react="^18.2.0"
@@ -75,32 +75,26 @@ jobs:
           npm pkg set dependencies.react-konva="^18.2.10"
           npm pkg set engines.node=">=16.0.0"
 
-      - name: NPM diagnostics
+      - name: Run NPM Diagnostics
         working-directory: ./electron-react
         run: |
           npm config list
           npm --version
           node --version
 
-      - name: Clean NPM cache
-        run: |
-          npm cache clean --force
-          npm cache verify
-
-      - name: Install dependencies
+      - name: Clean and Install Node Modules
         working-directory: ./electron-react
-        timeout-minutes: 5
         run: |
           rm -rf node_modules package-lock.json
+          npm cache clean --force
+          npm cache verify
           npm install --no-fund --no-audit
 
-      - name: Lint code
+      - name: Lint and Test React Code
         working-directory: ./electron-react
-        run: npm run lint
-
-      - name: Run tests
-        working-directory: ./electron-react
-        run: npm test
+        run: |
+          npm run lint
+          npm test
 
   deploy:
     name: Deploy
@@ -112,11 +106,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create config files
+      - name: Create Deployment Files
         run: |
           mkdir -p deploy
-          
-          # Create nginx.conf using a heredoc with a flush-left EOF marker.
+
+          # Create nginx configuration file
           cat > deploy/nginx.conf <<EOF
 server {
     listen 80;
@@ -149,6 +143,7 @@ server {
     }
 }
 EOF
+
           # Create PictureTest.php
           cat > deploy/PictureTest.php <<'EOL'
 <?php
@@ -156,9 +151,6 @@ EOF
 namespace Tests\Feature;
 use Tests\TestCase;
 
-/**
- * Skip incomplete picture tests
- */
 class PictureTest extends TestCase
 {
     /**
@@ -186,44 +178,32 @@ class PictureTest extends TestCase
     }
 }
 EOL
+
           # Create setup.sh
           cat > deploy/setup.sh <<'EOL'
 #!/bin/bash
 set -e
-
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting server setup"
-
-# Install required packages
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Installing packages"
 sudo apt-get update
 sudo apt-get install -y nginx mysql-server php8.1-fpm php8.1-cli php8.1-mysql \
   php8.1-mbstring php8.1-xml php8.1-zip php8.1-curl php8.1-gd php8.1-bcmath \
   php8.1-intl php8.1-redis php8.1-common php8.1-json curl git unzip nodejs npm redis-server
-
-# Install Composer
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Installing Composer"
 if ! command -v composer &> /dev/null; then
   curl -sS https://getcomposer.org/installer | sudo php -- --install-dir=/usr/local/bin --filename=composer
 fi
-
-# Configure PHP
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Configuring PHP"
 sudo sed -i 's/memory_limit = .*/memory_limit = 512M/' /etc/php/8.1/fpm/php.ini
 sudo sed -i 's/upload_max_filesize = .*/upload_max_filesize = 64M/' /etc/php/8.1/fpm/php.ini
 sudo sed -i 's/post_max_size = .*/post_max_size = 64M/' /etc/php/8.1/fpm/php.ini
-
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Setup completed successfully"
 EOL
+
           # Create database.sh
           cat > deploy/database.sh <<'EOL'
 #!/bin/bash
 set -e
-
 DB_ROOT_PASSWORD="$1"
 DB_USERNAME="$2"
 DB_PASSWORD="$3"
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Configuring MySQL"
 sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_ROOT_PASSWORD}';"
 sudo mysql -e "CREATE DATABASE IF NOT EXISTS photomaster;"
 sudo mysql -e "CREATE USER IF NOT EXISTS '${DB_USERNAME}'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';"
@@ -231,25 +211,19 @@ sudo mysql -e "GRANT ALL PRIVILEGES ON photomaster.* TO '${DB_USERNAME}'@'localh
 sudo mysql -e "DROP USER IF EXISTS ''@'localhost'"
 sudo mysql -e "DROP DATABASE IF EXISTS test"
 sudo mysql -e "FLUSH PRIVILEGES;"
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Database configured successfully"
+echo "Database configured successfully"
 EOL
+
           # Create app.sh
           cat > deploy/app.sh <<'EOL'
 #!/bin/bash
 set -e
-
 DB_USERNAME="$1"
 DB_PASSWORD="$2"
 REPO_URL="$3"
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Setting up application directory"
 sudo mkdir -p /var/www/photomaster
 sudo chown -R ubuntu:ubuntu /var/www/photomaster
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Cloning repository"
 cd /var/www/photomaster
-
 if [ -d ".git" ]; then
   git fetch --all
   git reset --hard origin/main
@@ -260,15 +234,9 @@ else
   cd photomaster
   git checkout main
 fi
-
-# Overwrite incomplete test file
 cp ~/deploy/PictureTest.php /var/www/photomaster/laravel/tests/Feature/PictureTest.php
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deploying Laravel"
 cd /var/www/photomaster/laravel
 composer install --no-dev --optimize-autoloader
-
-# Setup environment
 cp .env.example .env
 sed -i "s/DB_DATABASE=.*/DB_DATABASE=photomaster/" .env
 sed -i "s/DB_USERNAME=.*/DB_USERNAME=${DB_USERNAME}/" .env
@@ -278,22 +246,15 @@ php artisan migrate --force
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deploying React"
 cd /var/www/photomaster/electron-react
 npm install
 npm run build
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Setting permissions"
 sudo chown -R www-data:www-data /var/www/photomaster
 sudo chmod -R 755 /var/www/photomaster
 sudo chmod -R 775 /var/www/photomaster/laravel/storage /var/www/photomaster/laravel/bootstrap/cache
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Restarting services"
 sudo systemctl restart php8.1-fpm nginx mysql redis-server
 sudo systemctl enable php8.1-fpm nginx mysql redis-server
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deployment completed successfully at $(date)"
+echo "Deployment completed successfully at $(date)"
 EOL
 
           chmod +x deploy/setup.sh deploy/database.sh deploy/app.sh
@@ -305,19 +266,19 @@ EOL
           chmod 600 ~/.ssh/key.pem
           ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: Copy scripts to server
+      - name: Copy Scripts to Server
         run: scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -r deploy ubuntu@${{ env.SERVER_IP }}:~/
 
-      - name: Install server requirements
+      - name: Install Server Requirements
         run: ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./setup.sh"
 
       - name: Configure Nginx
         run: ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "sudo cp ~/deploy/nginx.conf /etc/nginx/sites-available/photomaster && sudo ln -sf /etc/nginx/sites-available/photomaster /etc/nginx/sites-enabled/ && sudo rm -f /etc/nginx/sites-enabled/default && sudo nginx -t && sudo systemctl restart nginx"
 
-      - name: Setup database
+      - name: Setup Database
         run: ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./database.sh '${{ secrets.DB_ROOT_PASSWORD }}' '${{ secrets.DB_USERNAME }}' '${{ secrets.DB_PASSWORD }}'"
 
-      - name: Deploy application
+      - name: Deploy Application
         run: ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./app.sh '${{ secrets.DB_USERNAME }}' '${{ secrets.DB_PASSWORD }}' 'https://github.com/${{ github.repository }}.git'"
 
       - name: Cleanup
@@ -326,7 +287,7 @@ EOL
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "rm -rf ~/deploy"
           rm -f ~/.ssh/key.pem
 
-      - name: Notify on failure
+      - name: Notify on Failure
         if: failure()
         uses: actions/github-script@v6
         with:
