@@ -1,4 +1,4 @@
-name: PhotoMaster Pipeline
+name: PhotoMaster Deployment Pipeline
 
 on:
   push:
@@ -7,154 +7,185 @@ on:
     branches: [main, develop]
   workflow_dispatch:
 
+env:
+  SERVER_IP: 13.39.161.145
+  APP_DIR: ~/PhotoMaster
+  DEPLOY_DIR: ~/deploy
+  LARAVEL_DIR: /var/www/photomaster/laravel
+  REACT_DIR: /var/www/photomaster/electron-react
+
 jobs:
   deploy:
-    name: Deploy to EC2
+    name: Secure Deployment to EC2
     runs-on: ubuntu-latest
-    env:
-      SERVER_IP: 13.39.161.145
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Setup SSH
+      - name: Validate Secrets
         run: |
+          if [ -z "${{ secrets.EC2_PEM_KEY }}" ]; then
+            echo "::error::EC2_PEM_KEY secret is missing"
+            exit 1
+          fi
+          echo "Secrets validation passed"
+
+      - name: Configure SSH Infrastructure
+        run: |
+          set -euo pipefail
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_PEM_KEY }}" > ~/.ssh/key.pem
+          echo "${{ secrets.EC2_PEM_KEY }}" | tr -d '\r' > ~/.ssh/key.pem
           chmod 600 ~/.ssh/key.pem
           ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: Test SSH Connection
+      - name: Verify Server Connectivity
         run: |
-          echo "Testing SSH connection..."
-          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} "echo Connection successful"
+          set -euo pipefail
+          echo "Testing SSH connection to ${{ env.SERVER_IP }}..."
+          ssh -i ~/.ssh/key.pem -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+            ubuntu@${{ env.SERVER_IP }} "echo 'Connection successful'"
 
-      - name: Clone or Pull Repository
+      - name: Synchronize Repository
         run: |
-          echo "Setting up repository on server..."
-          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} << 'EOF'
+          set -euo pipefail
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} << 'EOSSH'
+            set -euo pipefail
             mkdir -p ~/.ssh
-
-            echo "Configuring SSH for GitHub..."
-            cat > ~/.ssh/config <<EOCONFIG
-Host github.com
-  HostName github.com
-  User git
-  IdentityFile ~/.ssh/id_ed25519
-  IdentitiesOnly yes
-EOCONFIG
+            
+            # Configure GitHub SSH access
+            cat > ~/.ssh/config << 'EOCFG'
+            Host github.com
+              HostName github.com
+              User git
+              IdentityFile ~/.ssh/id_ed25519
+              IdentitiesOnly yes
+EOCFG
             chmod 600 ~/.ssh/config
 
-            if [ -d "~/PhotoMaster" ]; then
-              echo "Repository exists, pulling latest changes..."
-              cd ~/PhotoMaster
-              git pull origin main
+            # Repository management
+            if [ -d "$APP_DIR" ]; then
+              echo "Updating existing repository..."
+              git -C "$APP_DIR" pull origin main
             else
-              echo "Cloning repository using SSH..."
-              git clone git@github.com:haidar-farhat/PhotoMaster.git ~/PhotoMaster
-              cd ~/PhotoMaster
+              echo "Cloning new repository..."
+              git clone git@github.com:haidar-farhat/PhotoMaster.git "$APP_DIR"
             fi
 
-            ln -sf ~/PhotoMaster/deploy ~/deploy
-            ln -sf ~/PhotoMaster/laravel ~/laravel
-            ln -sf ~/PhotoMaster/electron-react ~/electron-react
-EOF
+            # Create symbolic links
+            ln -sfn "$APP_DIR/deploy" ~/deploy
+            ln -sfn "$APP_DIR/laravel" ~/laravel
+            ln -sfn "$APP_DIR/electron-react" ~/electron-react
+EOSSH
 
-      - name: Setup Server Environment
+      - name: Initialize Server Environment
         run: |
-          echo "Setting up server environment..."
-          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} << 'EOF'
-            if ! command -v docker &> /dev/null; then
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} << 'EOSSH'
+            set -euo pipefail
+
+            install_docker() {
               echo "Installing Docker..."
-              sudo apt-get update
-              sudo apt-get install -y ca-certificates curl gnupg
+              sudo apt-get update -qq
+              sudo apt-get install -qq -y ca-certificates curl gnupg
               sudo install -m 0755 -d /etc/apt/keyrings
-              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+                sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
               sudo chmod a+r /etc/apt/keyrings/docker.gpg
-              echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-              sudo apt-get update
-              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+              echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+                https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
+                sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+              sudo apt-get update -qq
+              sudo apt-get install -qq -y docker-ce docker-ce-cli containerd.io \
+                docker-buildx-plugin docker-compose-plugin
               sudo usermod -aG docker $USER
-            fi
+            }
 
-            if ! command -v docker-compose &> /dev/null; then
+            install_docker_compose() {
               echo "Installing Docker Compose..."
-              sudo curl -L "https://github.com/docker/compose/releases/download/v2.18.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+              sudo curl -L "https://github.com/docker/compose/releases/download/v2.18.1/docker-compose-$(uname -s)-$(uname -m)" \
+                -o /usr/local/bin/docker-compose
               sudo chmod +x /usr/local/bin/docker-compose
-            fi
+            }
 
-            if ! command -v git &> /dev/null; then
-              echo "Installing Git..."
-              sudo apt-get update
-              sudo apt-get install -y git
-            fi
+            # System package management
+            command -v docker >/dev/null 2>&1 || install_docker
+            command -v docker-compose >/dev/null 2>&1 || install_docker_compose
+            command -v git >/dev/null 2>&1 || sudo apt-get install -y git
 
-            echo "Creating directories..."
-            sudo mkdir -p /var/www/photomaster/laravel/storage
-            sudo mkdir -p /var/www/photomaster/laravel/bootstrap/cache
-            sudo mkdir -p /var/www/photomaster/electron-react/build
+            # Directory structure setup
+            sudo mkdir -p "$LARAVEL_DIR"/{storage,bootstrap/cache}
+            sudo mkdir -p "$REACT_DIR"/build
+            sudo chown -R www-data:www-data "$LARAVEL_DIR"
+            sudo chmod -R 775 "$LARAVEL_DIR"/storage "$LARAVEL_DIR"/bootstrap/cache
 
-            echo "Setting permissions..."
-            sudo chown -R www-data:www-data /var/www/photomaster
-            sudo chmod -R 775 /var/www/photomaster/laravel/storage
-            sudo chmod -R 775 /var/www/photomaster/laravel/bootstrap/cache
+            # Prepare deployment scripts
+            chmod +x "$DEPLOY_DIR"/*.sh
+EOSSH
 
-            echo "Making scripts executable..."
-            cd ~/deploy
-            chmod +x *.sh
-EOF
-
-      - name: Run Setup Scripts
+      - name: Execute Deployment Scripts
         run: |
-          echo "Running setup scripts..."
-          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} << EOF
-            cd ~/deploy
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} << EOF
+            set -euo pipefail
+            cd "$DEPLOY_DIR"
+            
+            # Execute setup scripts
             ./setup.sh
             if [ ! -f ~/.db_setup_complete ]; then
-              ./database.sh "${{ secrets.DB_ROOT_PASSWORD }}" "${{ secrets.DB_USERNAME }}" "${{ secrets.DB_PASSWORD }}"
+              ./database.sh \
+                "${{ secrets.DB_ROOT_PASSWORD }}" \
+                "${{ secrets.DB_USERNAME }}" \
+                "${{ secrets.DB_PASSWORD }}"
               touch ~/.db_setup_complete
             fi
             ./app.sh "${{ secrets.DB_USERNAME }}" "${{ secrets.DB_PASSWORD }}"
 EOF
 
-      - name: Build and Deploy Docker Containers
+      - name: Deploy Containers
         run: |
-          echo "Building and deploying Docker containers..."
-          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} << EOF
-            cd ~/deploy
-            export DB_USERNAME=${{ secrets.DB_USERNAME }}
-            export DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            export DB_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} << 'EOSSH'
+            set -euo pipefail
+            export DB_USERNAME="${{ secrets.DB_USERNAME }}"
+            export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
+            export DB_ROOT_PASSWORD="${{ secrets.DB_ROOT_PASSWORD }}"
 
-            cd ~/PhotoMaster
-            sudo docker build -t photomaster-laravel:latest -f laravel/Dockerfile --target production ./laravel
-            sudo docker build -t photomaster-react:latest -f electron-react/Dockerfile --target production ./electron-react
+            # Build application images
+            docker build -t photomaster-laravel:latest \
+              -f laravel/Dockerfile --target production ./laravel
+            docker build -t photomaster-react:latest \
+              -f electron-react/Dockerfile --target production ./electron-react
 
-            cd ~/deploy
-            sudo docker-compose down
-            sudo docker-compose up -d
+            # Container orchestration
+            cd "$DEPLOY_DIR"
+            docker-compose down --remove-orphans
+            docker-compose up -d --build
+            docker-compose ps
+EOSSH
 
-            sudo docker-compose ps
-EOF
-
-      - name: Deployment Summary
+      - name: Post-Deployment Verification
         run: |
-          echo "Deployment completed successfully!"
-          echo "Server: ${{ env.SERVER_IP }}"
-          echo "Timestamp: $(date)"
+          echo "Deployment Summary:"
+          echo "• Server: ${{ env.SERVER_IP }}"
+          echo "• Timestamp: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo "• Status: Success"
 
-      - name: Cleanup SSH Key
+      - name: Security Cleanup
         if: always()
-        run: rm -f ~/.ssh/key.pem
+        run: rm -fv ~/.ssh/key.pem
 
-      - name: Notify on Failure
+      - name: Failure Notification
         if: failure()
         uses: actions/github-script@v6
         with:
           script: |
+            const message = `🚨 Deployment failed!
+            • Workflow: \${{ github.workflow }}
+            • Commit: \${{ github.sha }}
+            • Server: \${{ env.SERVER_IP }}
+            • Logs: \${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }}`;
+            
             github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: '🚨 Deployment Failed',
-              body: `Deployment failed at ${new Date().toISOString()}.\n\n[View workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
-            })
+              title: 'Deployment Failure Alert',
+              body: message.replace(/  +/g, ' ')
+            });
