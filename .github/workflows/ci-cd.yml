@@ -1,313 +1,234 @@
-name: CI/CD Pipeline
+name: PhotoMaster CI/CD
 
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
-  workflow_dispatch: # Allow manual triggering
+  workflow_dispatch:
 
 jobs:
-  laravel-tests:
-    name: Laravel Tests
+  test-laravel:
+    name: Test Laravel
     runs-on: ubuntu-latest
-
+    
     services:
       mysql:
         image: mysql:8.0
         env:
-          MYSQL_DATABASE: photomaster_test
-          MYSQL_USER: user
-          MYSQL_PASSWORD: password
           MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: test_db
         ports:
           - 3306:3306
         options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
-
-    container:
-      image: php:8.1-fpm
-      env:
-        APP_ENV: testing
-        DB_CONNECTION: mysql
-        DB_HOST: mysql
-        DB_PORT: 3306
-        DB_DATABASE: photomaster_test
-        DB_USERNAME: user
-        DB_PASSWORD: password
-
+    
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          apt-get update && apt-get install -y \
-            git \
-            curl \
-            libpng-dev \
-            libonig-dev \
-            libxml2-dev \
-            zip \
-            unzip \
-            libzip-dev
-
-      - name: Install PHP extensions
-        run: |
-          docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
-
-      - name: Install Composer
-        run: |
-          curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
-
-      - name: Set directory permissions
-        run: chmod -R 777 storage bootstrap/cache
-
-      - name: Install dependencies
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: mbstring, dom, fileinfo, mysql
+          coverage: xdebug
+      
+      - name: Install Laravel Dependencies
         working-directory: ./laravel
-        run: composer install --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
-
-      - name: Generate key
+        run: composer install --prefer-dist --no-progress --no-ansi --no-interaction
+      
+      - name: Prepare Laravel Environment
         working-directory: ./laravel
         run: |
           cp .env.example .env
           php artisan key:generate
-
-      - name: Run Laravel tests
+      
+      - name: Run Laravel Tests
         working-directory: ./laravel
         run: vendor/bin/phpunit
 
-  react-tests:
-    name: React Tests
+  test-react:
+    name: Test React
     runs-on: ubuntu-latest
-
+    
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "18"
-
-      # Fix package.json versions before install
-      - name: Update package.json versions
+          node-version: '18'
+      
+      - name: Fix package versions
         working-directory: ./electron-react
         run: |
           sed -i 's/"react": "^19.1.0"/"react": "^18.2.0"/' package.json
           sed -i 's/"react-dom": "^19.1.0"/"react-dom": "^18.2.0"/' package.json
           sed -i 's/"react-konva": "^19.0.3"/"react-konva": "^18.2.10"/' package.json
-
-      - name: Clean install dependencies
+      
+      - name: Install React Dependencies
         working-directory: ./electron-react
         run: |
           rm -rf node_modules package-lock.json
           npm install
-
-      - name: Run ESLint
+      
+      - name: Run React Linter
         working-directory: ./electron-react
         run: npm run lint
-
-      - name: Run Tests
+      
+      - name: Run React Tests
         working-directory: ./electron-react
         run: npm test
 
-  deploy-production:
-    name: Deploy to Production
-    needs: [laravel-tests, react-tests]
+  deploy:
+    name: Deploy to Server
+    needs: [test-laravel, test-react]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Create PEM key
+      - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_PEM_KEY }}" > ~/.ssh/ec2.pem
-          chmod 600 ~/.ssh/ec2.pem
+          echo "${{ secrets.EC2_PEM_KEY }}" > ~/.ssh/key.pem
+          chmod 600 ~/.ssh/key.pem
           ssh-keyscan -H 13.39.161.145 >> ~/.ssh/known_hosts
-
-      - name: Test SSH connection
-        run: |
-          ssh -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=no ubuntu@13.39.161.145 'echo "SSH connection successful"'
-
+      
       - name: Deploy to EC2
-        uses: appleboy/ssh-action@master
-        with:
-          host: 13.39.161.145
-          username: ubuntu
-          key_path: ~/.ssh/ec2.pem
-          script: |
-            # Function to log messages
-            log() {
-              echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-            }
+        env:
+          SERVER_IP: 13.39.161.145
+          DB_ROOT_PASSWORD: ${{ secrets.DB_ROOT_PASSWORD }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          ssh -i ~/.ssh/key.pem ubuntu@13.39.161.145 '
+          # Setup logging
+          log() { echo "[$(date "+%Y-%m-%d %H:%M:%S")] $1"; }
+          handle_error() { log "ERROR: $1"; exit 1; }
+          
+          # System setup
+          log "Starting server setup"
+          sudo apt-get update || handle_error "Failed to update packages"
+          sudo apt-get install -y nginx mysql-server php8.1 php8.1-fpm php8.1-mysql php8.1-mbstring php8.1-xml php8.1-zip php8.1-curl php8.1-gd php8.1-bcmath php8.1-intl php8.1-soap php8.1-redis php8.1-common php8.1-cli php8.1-json php8.1-opcache php8.1-readline php8.1-tokenizer curl git unzip nodejs npm redis-server supervisor || handle_error "Failed to install packages"
+          
+          # Install composer
+          log "Installing Composer"
+          curl -sS https://getcomposer.org/installer | sudo php -- --install-dir=/usr/local/bin --filename=composer || handle_error "Failed to install Composer"
+          
+          # Configure PHP
+          log "Configuring PHP"
+          sudo sed -i "s/memory_limit = .*/memory_limit = 512M/" /etc/php/8.1/fpm/php.ini
+          sudo sed -i "s/upload_max_filesize = .*/upload_max_filesize = 64M/" /etc/php/8.1/fpm/php.ini
+          sudo sed -i "s/post_max_size = .*/post_max_size = 64M/" /etc/php/8.1/fpm/php.ini
+          
+          # Configure MySQL
+          log "Configuring MySQL"
+          sudo mysql -e "ALTER USER \"root\"@\"localhost\" IDENTIFIED WITH mysql_native_password BY \"'"$DB_ROOT_PASSWORD"'\";" || handle_error "Failed to set MySQL root password"
+          sudo mysql -e "CREATE DATABASE IF NOT EXISTS photomaster;" || handle_error "Failed to create database"
+          sudo mysql -e "CREATE USER IF NOT EXISTS \"'"$DB_USERNAME"'\"@\"localhost\" IDENTIFIED BY \"'"$DB_PASSWORD"'\";" || handle_error "Failed to create database user" 
+          sudo mysql -e "GRANT ALL PRIVILEGES ON photomaster.* TO \"'"$DB_USERNAME"'\"@\"localhost\";" || handle_error "Failed to grant privileges"
+          sudo mysql -e "FLUSH PRIVILEGES;"
+          
+          # Configure Nginx
+          log "Setting up Nginx"
+          cat > /tmp/nginx-photomaster << EOF
+server {
+    listen 80;
+    server_name 13.39.161.145;
+    root /var/www/photomaster/laravel/public;
 
-            # Function to handle errors
-            handle_error() {
-              log "ERROR: $1"
-              exit 1
-            }
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
 
-            # Initial server setup
-            log "Starting initial server setup"
+    index index.php;
+    charset utf-8;
 
-            # Update system packages
-            log "Updating system packages"
-            sudo apt-get update || handle_error "Failed to update packages"
-            sudo apt-get upgrade -y || handle_error "Failed to upgrade packages"
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
 
-            # Install required packages
-            log "Installing required packages"
-            sudo apt-get install -y \
-              nginx \
-              mysql-server \
-              php8.1 \
-              php8.1-fpm \
-              php8.1-mysql \
-              php8.1-mbstring \
-              php8.1-xml \
-              php8.1-zip \
-              php8.1-curl \
-              php8.1-gd \
-              php8.1-bcmath \
-              php8.1-intl \
-              php8.1-soap \
-              php8.1-redis \
-              php8.1-common \
-              php8.1-cli \
-              php8.1-json \
-              php8.1-opcache \
-              php8.1-readline \
-              php8.1-tokenizer \
-              php8.1-xml \
-              php8.1-zip \
-              curl \
-              git \
-              unzip \
-              nodejs \
-              npm \
-              redis-server \
-              supervisor || handle_error "Failed to install packages"
+    location = /favicon.ico { access_log off; log_not_found off; }
+    location = /robots.txt  { access_log off; log_not_found off; }
 
-            # Install Composer
-            log "Installing Composer"
-            curl -sS https://getcomposer.org/installer | sudo php -- --install-dir=/usr/local/bin --filename=composer || handle_error "Failed to install Composer"
+    error_page 404 /index.php;
 
-            # Configure PHP
-            log "Configuring PHP"
-            sudo sed -i 's/memory_limit = .*/memory_limit = 512M/' /etc/php/8.1/fpm/php.ini
-            sudo sed -i 's/upload_max_filesize = .*/upload_max_filesize = 64M/' /etc/php/8.1/fpm/php.ini
-            sudo sed -i 's/post_max_size = .*/post_max_size = 64M/' /etc/php/8.1/fpm/php.ini
-            sudo sed -i 's/max_execution_time = .*/max_execution_time = 600/' /etc/php/8.1/fpm/php.ini
+    location ~ \.php$ {
+        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
+        include fastcgi_params;
+    }
 
-            # Configure MySQL
-            log "Configuring MySQL"
-            sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${{ secrets.DB_ROOT_PASSWORD }}';" || handle_error "Failed to configure MySQL root password"
-            sudo mysql -e "CREATE DATABASE IF NOT EXISTS photomaster;" || handle_error "Failed to create database"
-            sudo mysql -e "CREATE USER IF NOT EXISTS '${{ secrets.DB_USERNAME }}'@'localhost' IDENTIFIED BY '${{ secrets.DB_PASSWORD }}';" || handle_error "Failed to create database user"
-            sudo mysql -e "GRANT ALL PRIVILEGES ON photomaster.* TO '${{ secrets.DB_USERNAME }}'@'localhost';" || handle_error "Failed to grant privileges"
-            sudo mysql -e "FLUSH PRIVILEGES;"
-
-            # Configure Nginx
-            log "Configuring Nginx"
-            sudo rm -f /etc/nginx/sites-available/photomaster
-            sudo touch /etc/nginx/sites-available/photomaster
-
-            sudo bash -c 'echo "server {" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    listen 80;" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    server_name 13.39.161.145;" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    root /var/www/photomaster/laravel/public;" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    add_header X-Frame-Options \"SAMEORIGIN\";" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    add_header X-Content-Type-Options \"nosniff\";" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    index index.php;" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    charset utf-8;" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    location / {" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "        try_files \$uri \$uri/ /index.php?\$query_string;" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    }" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    location = /favicon.ico { access_log off; log_not_found off; }" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    location = /robots.txt  { access_log off; log_not_found off; }" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    error_page 404 /index.php;" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    location ~ \\.php$ {" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "        include fastcgi_params;" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    }" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    location ~ /\\.(?!well-known).* {" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "        deny all;" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "    }" >> /etc/nginx/sites-available/photomaster'
-            sudo bash -c 'echo "}" >> /etc/nginx/sites-available/photomaster'
-
-            sudo ln -sf /etc/nginx/sites-available/photomaster /etc/nginx/sites-enabled/
-            sudo rm -f /etc/nginx/sites-enabled/default
-            sudo nginx -t || handle_error "Nginx configuration test failed"
-            sudo systemctl restart nginx || handle_error "Failed to restart Nginx"
-
-            # Create project directory
-            log "Creating project directory"
-            sudo mkdir -p /var/www/photomaster || handle_error "Failed to create project directory"
-            sudo chown -R ubuntu:ubuntu /var/www/photomaster || handle_error "Failed to set directory ownership"
-
-            # Clone repository
-            log "Cloning repository"
-            cd /var/www/photomaster || handle_error "Failed to navigate to project directory"
-            git clone ${{ github.server_url }}/${{ github.repository }} . || handle_error "Failed to clone repository"
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}
+EOF
+          sudo mv /tmp/nginx-photomaster /etc/nginx/sites-available/photomaster || handle_error "Failed to move Nginx config"
+          sudo ln -sf /etc/nginx/sites-available/photomaster /etc/nginx/sites-enabled/ || handle_error "Failed to enable Nginx site"
+          sudo rm -f /etc/nginx/sites-enabled/default
+          sudo nginx -t || handle_error "Nginx configuration test failed"
+          
+          # Setup application directory
+          log "Setting up application directory"
+          sudo mkdir -p /var/www/photomaster
+          sudo chown -R ubuntu:ubuntu /var/www/photomaster
+          
+          # Clone repository
+          log "Cloning repository"
+          cd /var/www/photomaster
+          git fetch --all
+          git reset --hard origin/main || handle_error "Failed to reset repository"
+          
+          # If repo doesn't exist yet, clone it
+          if [ ! -d ".git" ]; then
+            cd /var/www
+            sudo rm -rf photomaster
+            git clone https://github.com/${{ github.repository }}.git photomaster || handle_error "Failed to clone repository"
+            cd photomaster
             git checkout main || handle_error "Failed to checkout main branch"
-
-            # Laravel deployment
-            log "Deploying Laravel"
-            cd laravel || handle_error "Failed to navigate to Laravel directory"
-            composer install --no-dev --optimize-autoloader || handle_error "Failed to install Laravel dependencies"
-
-            # Configure Laravel environment
-            log "Configuring Laravel environment"
-            cp .env.example .env || handle_error "Failed to copy environment file"
-            sed -i "s/DB_DATABASE=.*/DB_DATABASE=photomaster/" .env
-            sed -i "s/DB_USERNAME=.*/DB_USERNAME=${{ secrets.DB_USERNAME }}/" .env
-            sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=${{ secrets.DB_PASSWORD }}/" .env
-            php artisan key:generate || handle_error "Failed to generate application key"
-            php artisan migrate --force || handle_error "Failed to run migrations"
-            php artisan config:cache || handle_error "Failed to cache config"
-            php artisan route:cache || handle_error "Failed to cache routes"
-            php artisan view:cache || handle_error "Failed to cache views"
-
-            # React deployment
-            log "Deploying React"
-            cd ../electron-react || handle_error "Failed to navigate to React directory"
-            npm install || handle_error "Failed to install React dependencies"
-            npm run build || handle_error "Failed to build React application"
-
-            # Set proper permissions
-            log "Setting permissions"
-            sudo chown -R www-data:www-data /var/www/photomaster || handle_error "Failed to set ownership"
-            sudo chmod -R 755 /var/www/photomaster || handle_error "Failed to set permissions"
-            sudo chmod -R 775 /var/www/photomaster/laravel/storage /var/www/photomaster/laravel/bootstrap/cache || handle_error "Failed to set storage permissions"
-
-            # Restart services
-            log "Restarting services"
-            sudo systemctl restart php8.1-fpm || handle_error "Failed to restart PHP-FPM"
-            sudo systemctl restart nginx || handle_error "Failed to restart Nginx"
-            sudo systemctl restart mysql || handle_error "Failed to restart MySQL"
-            sudo systemctl restart redis-server || handle_error "Failed to restart Redis"
-
-            # Enable services to start on boot
-            log "Enabling services"
-            sudo systemctl enable nginx || handle_error "Failed to enable Nginx"
-            sudo systemctl enable php8.1-fpm || handle_error "Failed to enable PHP-FPM"
-            sudo systemctl enable mysql || handle_error "Failed to enable MySQL"
-            sudo systemctl enable redis-server || handle_error "Failed to enable Redis"
-
-            # Notify deployment status
-            log "Deployment completed successfully at $(date)"
-
-      - name: Cleanup PEM key
+          fi
+          
+          # Deploy Laravel
+          log "Deploying Laravel"
+          cd /var/www/photomaster/laravel
+          composer install --no-dev --optimize-autoloader || handle_error "Failed to install Laravel dependencies"
+          
+          # Setup environment
+          cp .env.example .env
+          sed -i "s/DB_DATABASE=.*/DB_DATABASE=photomaster/" .env
+          sed -i "s/DB_USERNAME=.*/DB_USERNAME='$DB_USERNAME'/" .env
+          sed -i "s/DB_PASSWORD=.*/DB_PASSWORD='$DB_PASSWORD'/" .env
+          php artisan key:generate || handle_error "Failed to generate key"
+          php artisan migrate --force || handle_error "Failed to run migrations"
+          php artisan config:cache || handle_error "Failed to cache config"
+          php artisan route:cache || handle_error "Failed to cache routes"
+          php artisan view:cache || handle_error "Failed to cache views"
+          
+          # Deploy React
+          log "Deploying React"
+          cd /var/www/photomaster/electron-react
+          npm install || handle_error "Failed to install React dependencies"
+          npm run build || handle_error "Failed to build React application"
+          
+          # Set permissions
+          log "Setting permissions"
+          sudo chown -R www-data:www-data /var/www/photomaster
+          sudo chmod -R 755 /var/www/photomaster
+          sudo chmod -R 775 /var/www/photomaster/laravel/storage /var/www/photomaster/laravel/bootstrap/cache
+          
+          # Restart services
+          log "Restarting services"
+          sudo systemctl restart php8.1-fpm nginx mysql redis-server
+          sudo systemctl enable php8.1-fpm nginx mysql redis-server
+          
+          log "Deployment completed successfully at $(date)"
+          '
+      
+      - name: Cleanup
         if: always()
-        run: rm -f ~/.ssh/ec2.pem
-
+        run: rm -f ~/.ssh/key.pem
+      
       - name: Notify on failure
         if: failure()
         uses: actions/github-script@v6
