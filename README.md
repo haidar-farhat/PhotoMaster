@@ -1,4 +1,4 @@
-# PhotoMaster v1
+# PhotoMaster v1.
 
 A powerful photo management and editing application built with Laravel, React, and Electron.
 
