@@ -240,7 +240,7 @@ jobs:
 
             # Configure Nginx
             log "Configuring Nginx"
-            sudo bash -c 'cat > /etc/nginx/sites-available/photomaster << EOL
+            sudo tee /etc/nginx/sites-available/photomaster > /dev/null << 'EOL'
 server {
     listen 80;
     server_name 13.39.161.145;
@@ -254,7 +254,7 @@ server {
     charset utf-8;
 
     location / {
-        try_files \$uri \$uri/ /index.php?\$query_string;
+        try_files $uri $uri/ /index.php?$query_string;
     }
 
     location = /favicon.ico { access_log off; log_not_found off; }
@@ -264,7 +264,7 @@ server {
 
     location ~ \.php$ {
         fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
         include fastcgi_params;
     }
 
@@ -272,7 +272,7 @@ server {
         deny all;
     }
 }
-EOL'
+EOL
 
             sudo ln -sf /etc/nginx/sites-available/photomaster /etc/nginx/sites-enabled/
             sudo rm -f /etc/nginx/sites-enabled/default
