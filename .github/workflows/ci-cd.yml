@@ -1,161 +1,184 @@
-name: CI/CD Pipeline
+name: PhotoMaster Pipeline
 
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+  workflow_dispatch:
 
 jobs:
-  laravel-tests:
-    name: Laravel Tests
+  test:
+    name: Run Tests
     runs-on: ubuntu-latest
-
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_DATABASE: photomaster_test
-          MYSQL_USER: user
-          MYSQL_PASSWORD: password
-          MYSQL_ROOT_PASSWORD: password
-        ports:
-          - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+    timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Test Laravel
+        uses: docker/build-push-action@v5
         with:
-          php-version: "8.1"
-          extensions: mbstring, dom, fileinfo, mysql
-          coverage: xdebug
+          context: ./laravel
+          target: test
+          load: true
+          tags: photomaster-laravel:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Copy .env
-        run: php -r "file_exists('.env') || copy('.env.example', '.env');"
-
-      - name: Install Dependencies
-        run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
-
-      - name: Generate key
-        run: php artisan key:generate
-
-      - name: Directory Permissions
-        run: chmod -R 777 storage bootstrap/cache
-
-      - name: Run PHP CS Fixer
-        run: |
-          composer require --dev friendsofphp/php-cs-fixer
-          vendor/bin/php-cs-fixer fix --dry-run --diff
-
-      - name: Run PHPStan
-        run: |
-          composer require --dev phpstan/phpstan
-          vendor/bin/phpstan analyse
-
-      - name: Execute tests via PHPUnit
-        env:
-          DB_CONNECTION: mysql
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_DATABASE: photomaster_test
-          DB_USERNAME: user
-          DB_PASSWORD: password
-        run: vendor/bin/phpunit
-
-  react-tests:
-    name: React Tests
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      - name: Build and Test React
+        uses: docker/build-push-action@v5
         with:
-          node-version: "18"
-          cache: "npm"
+          context: ./electron-react
+          target: test
+          load: true
+          tags: photomaster-react:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Install Dependencies
-        working-directory: ./electron-react
-        run: npm ci
-
-      - name: Run ESLint
-        working-directory: ./electron-react
-        run: npm run lint
-
-      - name: Run Tests
-        working-directory: ./electron-react
-        run: npm test
-
-  deploy-production:
-    name: Deploy to Production
-    needs: [laravel-tests, react-tests]
+  deploy:
+    name: Deploy
+    needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    env:
+      SERVER_IP: 13.39.161.145
 
     steps:
-      - name: Create PEM key
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Production Images
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: production
+          load: true
+          tags: |
+            photomaster-laravel:latest
+            photomaster-react:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_PEM_KEY }}" > ~/.ssh/ec2.pem
-          chmod 600 ~/.ssh/ec2.pem
-          ssh-keyscan -H ${{ secrets.EC2_IP }} >> ~/.ssh/known_hosts
+          echo "${{ secrets.EC2_PEM_KEY }}" > ~/.ssh/key.pem
+          chmod 600 ~/.ssh/key.pem
+          ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.EC2_IP }}
-          username: ubuntu
-          key_path: ~/.ssh/ec2.pem
-          script: |
-            # Navigate to project directory
-            cd /var/www/photomaster
+      - name: Deploy to Server
+        run: |
+          # Create deployment directory
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "mkdir -p ~/deploy"
+          
+          # Copy Docker Compose file
+          cat > docker-compose.yml << 'EOL'
+version: '3.8'
 
-            # Backup current version
-            timestamp=$(date +%Y%m%d_%H%M%S)
-            if [ -d "backup_$timestamp" ]; then
-              rm -rf "backup_$timestamp"
-            fi
-            cp -r . "backup_$timestamp"
+services:
+  laravel:
+    image: photomaster-laravel:latest
+    restart: always
+    environment:
+      - DB_HOST=mysql
+      - DB_DATABASE=photomaster
+      - DB_USERNAME=${{ secrets.DB_USERNAME }}
+      - DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+    volumes:
+      - /var/www/photomaster/laravel/storage:/var/www/html/storage
+      - /var/www/photomaster/laravel/bootstrap/cache:/var/www/html/bootstrap/cache
+    depends_on:
+      - mysql
 
-            # Pull latest changes
-            git fetch origin
-            git checkout main
-            git pull origin main
+  react:
+    image: photomaster-react:latest
+    restart: always
+    volumes:
+      - /var/www/photomaster/electron-react/build:/usr/share/nginx/html
+    depends_on:
+      - laravel
 
-            # Laravel deployment
-            cd laravel
-            composer install --no-dev --optimize-autoloader
-            php artisan down
-            php artisan migrate --force
-            php artisan config:cache
-            php artisan route:cache
-            php artisan view:cache
-            php artisan up
+  mysql:
+    image: mysql:8.0
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
+      - MYSQL_DATABASE=photomaster
+      - MYSQL_USER=${{ secrets.DB_USERNAME }}
+      - MYSQL_PASSWORD=${{ secrets.DB_PASSWORD }}
+    volumes:
+      - mysql_data:/var/lib/mysql
 
-            # React deployment
-            cd ../electron-react
-            npm ci
-            npm run build
+  nginx:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - /var/www/photomaster/laravel/public:/var/www/html/laravel
+      - /var/www/photomaster/electron-react/build:/var/www/html/react
+    depends_on:
+      - laravel
+      - react
 
-            # Set proper permissions
-            sudo chown -R www-data:www-data /var/www/photomaster
-            sudo chmod -R 755 /var/www/photomaster
+volumes:
+  mysql_data:
+EOL
 
-            # Clear caches and restart services
-            sudo systemctl restart php8.1-fpm
-            sudo systemctl restart nginx
+          # Create Nginx configuration
+          cat > nginx.conf << 'EOL'
+server {
+    listen 80;
+    server_name ${{ env.SERVER_IP }};
+    
+    # Laravel
+    location /api {
+        root /var/www/html/laravel;
+        try_files $uri $uri/ /index.php?$query_string;
+    }
 
-            # Cleanup old backups (keep last 5)
-            cd /var/www/photomaster
-            ls -t | grep backup_ | tail -n +6 | xargs -r rm -rf
+    # React
+    location / {
+        root /var/www/html/react;
+        try_files $uri $uri/ /index.html;
+    }
 
-            # Notify deployment status
-            echo "Deployment completed successfully at $(date)"
+    # PHP-FPM
+    location ~ \.php$ {
+        fastcgi_pass laravel:9000;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+}
+EOL
 
-      - name: Cleanup PEM key
+          # Copy files to server
+          scp -i ~/.ssh/key.pem docker-compose.yml nginx.conf ubuntu@${{ env.SERVER_IP }}:~/deploy/
+
+          # Deploy application
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && docker-compose down && docker-compose up -d"
+
+      - name: Cleanup
         if: always()
-        run: rm -f ~/.ssh/ec2.pem
+        run: |
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "rm -rf ~/deploy"
+          rm -f ~/.ssh/key.pem
+
+      - name: Notify on Failure
+        if: failure()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Deployment failed',
+              body: `Deployment to production failed at ${new Date().toISOString()}\n\nSee [workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.`
+            });
