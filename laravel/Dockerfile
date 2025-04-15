@@ -76,10 +76,7 @@ RUN chown -R www-data:www-data /var/www/html \
 
 # Application key will be generated during deployment
 
-# Cache configuration and routes
-RUN php artisan config:cache \
-    && php artisan route:cache \
-    && php artisan view:cache
+# Caching (config, routes, views) will be done during deployment
 
 # Expose port 9000
 EXPOSE 9000
