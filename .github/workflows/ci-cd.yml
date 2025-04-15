@@ -117,8 +117,8 @@ jobs:
         run: |
           mkdir -p deploy
           
-          # Create nginx.conf file using a heredoc for clarity
-          cat > deploy/nginx.conf <<EOF
+          # Create nginx.conf file using a heredoc
+          cat > deploy/nginx.conf <<'EOF'
 server {
     listen 80;
     server_name ${{ env.SERVER_IP }};
@@ -150,7 +150,6 @@ server {
     }
 }
 EOF
-          
           # Create PictureTest.php
           cat > deploy/PictureTest.php << 'EOL'
 <?php
@@ -188,7 +187,6 @@ class PictureTest extends TestCase
     }
 }
 EOL
-          
           # Create setup.sh
           cat > deploy/setup.sh << 'EOL'
 #!/bin/bash
@@ -217,7 +215,6 @@ sudo sed -i 's/post_max_size = .*/post_max_size = 64M/' /etc/php/8.1/fpm/php.ini
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Setup completed successfully"
 EOL
-          
           # Create database.sh
           cat > deploy/database.sh << 'EOL'
 #!/bin/bash
@@ -238,7 +235,6 @@ sudo mysql -e "FLUSH PRIVILEGES;"
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Database configured successfully"
 EOL
-          
           # Create app.sh
           cat > deploy/app.sh << 'EOL'
 #!/bin/bash
