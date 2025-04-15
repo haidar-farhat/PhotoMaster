@@ -38,12 +38,21 @@ RUN npm ci || (echo "npm ci failed, falling back to npm install..." && npm insta
 COPY . .
 
 # Build app
-# Increase Node memory limit and run build
-RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build
+# Install additional build dependencies
+RUN apk add --no-cache --virtual .gyp python3 make g++
 
-# Clean up unnecessary files to reduce image size
-RUN rm -rf node_modules && \
-    rm -rf ~/.npm
+# Increase Node memory limit and run build with retries
+RUN set -e; \
+    for i in 1 2 3; do \
+        NODE_OPTIONS="--max-old-space-size=8192" npm run build && break || \
+        (echo "Attempt $i failed, retrying..." && sleep 10); \
+    done
+
+# Clean up build dependencies and cache
+RUN apk del .gyp && \
+    rm -rf node_modules && \
+    rm -rf ~/.npm && \
+    rm -rf /tmp/*
 
 # Production stage using Nginx
 FROM nginx:alpine AS production
