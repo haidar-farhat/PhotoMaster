@@ -118,38 +118,36 @@ jobs:
           mkdir -p deploy
           
           # Create nginx.conf file
-          cat > deploy/nginx.conf << 'EOL'
-          server {
-              listen 80;
-              server_name ${{ env.SERVER_IP }};
-              root /var/www/photomaster/laravel/public;
+          echo 'server {
+    listen 80;
+    server_name '"${{ env.SERVER_IP }}"';
+    root /var/www/photomaster/laravel/public;
 
-              add_header X-Frame-Options "SAMEORIGIN";
-              add_header X-Content-Type-Options "nosniff";
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
 
-              index index.php;
-              charset utf-8;
+    index index.php;
+    charset utf-8;
 
-              location / {
-                  try_files $uri $uri/ /index.php?$query_string;
-              }
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
 
-              location = /favicon.ico { access_log off; log_not_found off; }
-              location = /robots.txt  { access_log off; log_not_found off; }
+    location = /favicon.ico { access_log off; log_not_found off; }
+    location = /robots.txt  { access_log off; log_not_found off; }
 
-              error_page 404 /index.php;
+    error_page 404 /index.php;
 
-              location ~ \.php$ {
-                  fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
-                  fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
-                  include fastcgi_params;
-              }
+    location ~ \.php$ {
+        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
 
-              location ~ /\.(?!well-known).* {
-                  deny all;
-              }
-          }
-          EOL
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}' > deploy/nginx.conf
           
           # Create PictureTest.php
           cat > deploy/PictureTest.php << 'EOL'
