@@ -10,7 +10,7 @@ on:
 env:
   SERVER_IP: 13.39.161.145
   APP_DIR: ~/PhotoMaster
-  DEPLOY_DIR: ~/deploy
+  # DEPLOY_DIR is less relevant now as we cd directly
 
 jobs:
   deploy:
@@ -30,6 +30,9 @@ jobs:
             echo "::error::Missing EC2_PEM_KEY secret"
             exit 1
           fi
+          if [ -z "${{ secrets.DB_ROOT_PASSWORD }}" ]; then echo "::error::Missing DB_ROOT_PASSWORD secret"; exit 1; fi
+          if [ -z "${{ secrets.DB_USERNAME }}" ]; then echo "::error::Missing DB_USERNAME secret"; exit 1; fi
+          if [ -z "${{ secrets.DB_PASSWORD }}" ]; then echo "::error::Missing DB_PASSWORD secret"; exit 1; fi
           echo "✓ Secrets validation passed"
 
       - name: Configure SSH Connection
@@ -56,11 +59,38 @@ jobs:
             else
               git clone https://github.com/haidar-farhat/PhotoMaster.git \"${{ env.APP_DIR }}\"
             fi;
+            # Symlinks might still be useful for manual server access, keep them for now
             ln -sfn \"${{ env.APP_DIR }}/deploy\" ~/deploy &&
             ln -sfn \"${{ env.APP_DIR }}/laravel\" ~/laravel &&
             ln -sfn \"${{ env.APP_DIR }}/electron-react\" ~/electron-react"
 
-      - name: Execute Deployment Scripts
+      - name: Create .env File for Docker Compose
+        run: |
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
+            "set -eo pipefail;
+            cd \"${{ env.APP_DIR }}/deploy\" &&
+            echo 'Creating .env file...' &&
+            echo \"DB_ROOT_PASSWORD=\\\"${{ secrets.DB_ROOT_PASSWORD }}\\\"\" > .env &&
+            echo \"DB_USERNAME=\\\"${{ secrets.DB_USERNAME }}\\\"\" >> .env &&
+            echo \"DB_PASSWORD=\\\"${{ secrets.DB_PASSWORD }}\\\"\" >> .env &&
+            echo '.env file created successfully.'"
+
+      - name: Deploy Docker Services (Build & Start)
+        run: |
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
+            "set -eo pipefail;
+            cd \"${{ env.APP_DIR }}/deploy\" &&
+            # Build images
+            docker build -t photomaster-laravel:latest \
+              -f \"../laravel/Dockerfile\" --target production \"../laravel\" &&
+            docker build -t photomaster-react:latest \
+              -f \"../electron-react/Dockerfile\" --target production \"../electron-react\" &&
+            # Stop existing services and start new ones
+            docker-compose down --timeout 30 &&
+            docker-compose up -d --force-recreate &&
+            docker-compose ps --all"
+
+      - name: Execute Post-Deployment Scripts (Laravel Setup)
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
             "set -eo pipefail;
@@ -71,7 +101,8 @@ jobs:
               echo 'Marking database as initialized (handled by mysql container).'
               touch ~/.db_initialized;
             fi &&
-            # Run Laravel setup commands inside the container
+            # Run Laravel setup commands inside the running container
+            echo 'Running Laravel setup commands...' &&
             docker-compose exec -T laravel bash -c ' \
               set -e && \
               cd /var/www/html && \
@@ -80,21 +111,8 @@ jobs:
               php artisan route:cache && \
               php artisan view:cache && \
               php artisan migrate --force \
-            '
+            ' &&
             echo 'Laravel setup commands executed successfully.'"
-
-      - name: Deploy Docker Services
-        run: |
-          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
-            "set -eo pipefail; \
-            cd \"${{ env.APP_DIR }}/deploy\" && \
-            docker build -t photomaster-laravel:latest \
-              -f \"../laravel/Dockerfile\" --target production \"../laravel\" && \
-            docker build -t photomaster-react:latest \
-              -f \"../electron-react/Dockerfile\" --target production \"../electron-react\" && \
-            docker-compose down --timeout 30 && \
-            docker-compose up -d --force-recreate && \
-            docker-compose ps --all"
 
       - name: Verify Deployment
         run: |
