@@ -3,6 +3,9 @@
 # Base Node image
 FROM node:16-alpine AS base
 
+# Install build dependencies for native Node modules
+RUN apk add --no-cache python3 make g++
+
 # Set working directory
 WORKDIR /app
 
