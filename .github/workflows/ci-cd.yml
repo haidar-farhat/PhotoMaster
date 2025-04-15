@@ -36,10 +36,10 @@ jobs:
         DB_PASSWORD: password
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v2
 
       - name: Cache Composer dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v2
         with:
           path: ./laravel/vendor
           key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
@@ -85,7 +85,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v2
         with:
           name: laravel-test-results
           path: ./laravel/tests/Results
@@ -96,16 +96,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v2
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v2
         with:
           node-version: "18"
           cache: "npm"
 
       - name: Cache node modules
-        uses: actions/cache@v3
+        uses: actions/cache@v2
         with:
           path: ./electron-react/node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
@@ -136,7 +136,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v2
         with:
           name: react-test-results
           path: ./electron-react/coverage
