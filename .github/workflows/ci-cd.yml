@@ -117,10 +117,11 @@ jobs:
         run: |
           mkdir -p deploy
           
-          # Create nginx.conf file
-          echo 'server {
+          # Create nginx.conf file using a heredoc for clarity
+          cat > deploy/nginx.conf <<EOF
+server {
     listen 80;
-    server_name '"${{ env.SERVER_IP }}"';
+    server_name ${{ env.SERVER_IP }};
     root /var/www/photomaster/laravel/public;
 
     add_header X-Frame-Options "SAMEORIGIN";
@@ -130,7 +131,7 @@ jobs:
     charset utf-8;
 
     location / {
-        try_files $uri $uri/ /index.php?$query_string;
+        try_files \$uri \$uri/ /index.php?\$query_string;
     }
 
     location = /favicon.ico { access_log off; log_not_found off; }
@@ -140,14 +141,15 @@ jobs:
 
     location ~ \.php$ {
         fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
         include fastcgi_params;
     }
 
     location ~ /\.(?!well-known).* {
         deny all;
     }
-}' > deploy/nginx.conf
+}
+EOF
           
           # Create PictureTest.php
           cat > deploy/PictureTest.php << 'EOL'
