@@ -1,18 +1,52 @@
-FROM node:18-alpine
+# syntax=docker/dockerfile:1
 
+# Base Node image
+FROM node:16-alpine AS base
+
+# Set working directory
 WORKDIR /app
 
+# Test stage
+FROM base AS test
+
+# Copy package.json and package-lock.json
 COPY package*.json ./
-COPY yarn.lock ./
 
-# Install dependencies including the image editor packages with legacy peer deps
-RUN npm install --legacy-peer-deps && \
-    npm install --legacy-peer-deps tui-image-editor @toast-ui/react-image-editor
+# Install dependencies
+RUN npm ci
 
+# Copy application files
 COPY . .
 
-# Expose port 3000 for the React development server
-EXPOSE 3000
+# Run tests
+CMD ["npm", "test", "--", "--watchAll=false"]
 
-# Start both the React development server and wait for the chat server
-CMD ["sh", "-c", "npm run dev"]
+# Build stage
+FROM base AS build
+
+# Copy package.json and package-lock.json
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy application files
+COPY . .
+
+# Build app
+RUN npm run build
+
+# Production stage using Nginx
+FROM nginx:alpine AS production
+
+# Copy built assets from builder stage
+COPY --from=build /app/build /usr/share/nginx/html
+
+# Copy custom nginx config
+COPY nginx/default.conf /etc/nginx/conf.d/default.conf
+
+# Expose port 80
+EXPOSE 80
+
+# Start Nginx server
+CMD ["nginx", "-g", "daemon off;"]

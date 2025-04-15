@@ -1,3 +1,8 @@
+# syntax=docker/dockerfile:1
+
+# This is a placeholder Dockerfile for the root of the project
+# It enables building both Laravel and React applications together
+
 # Multi-stage build for PhotoMaster application
 FROM php:8.0-apache as backend
 
@@ -54,3 +59,18 @@ COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
+
+# Production stage - importing from laravel and electron-react
+FROM photomaster-laravel:latest AS laravel-prod
+FROM photomaster-react:latest AS react-prod
+
+# Final production image
+FROM nginx:alpine AS production
+
+# Copy assets from both applications
+COPY --from=laravel-prod /var/www/html /var/www/html
+COPY --from=react-prod /usr/share/nginx/html /usr/share/nginx/html
+
+# This Dockerfile is primarily used as a reference point for the docker/build-push-action
+# The actual build process happens in the GitHub Actions workflow
+# See laravel/Dockerfile and electron-react/Dockerfile for the actual build definitions

@@ -1,0 +1,59 @@
+version: "3.8"
+
+services:
+  laravel:
+    image: photomaster-laravel:latest
+    restart: always
+    environment:
+      - DB_HOST=mysql
+      - DB_DATABASE=photomaster
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - /var/www/photomaster/laravel/storage:/var/www/html/storage
+      - /var/www/photomaster/laravel/bootstrap/cache:/var/www/html/bootstrap/cache
+    depends_on:
+      - mysql
+      - redis
+
+  react:
+    image: photomaster-react:latest
+    restart: always
+    volumes:
+      - /var/www/photomaster/electron-react/build:/usr/share/nginx/html
+    depends_on:
+      - laravel
+
+  mysql:
+    image: mysql:8.0
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+      - MYSQL_DATABASE=photomaster
+      - MYSQL_USER=${DB_USERNAME}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  redis:
+    image: redis:alpine
+    restart: always
+    volumes:
+      - redis_data:/data
+
+  nginx:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - /var/www/photomaster/laravel/public:/var/www/html/laravel
+      - /var/www/photomaster/electron-react/build:/var/www/html/react
+    depends_on:
+      - laravel
+      - react
+
+volumes:
+  mysql_data:
+  redis_data:
