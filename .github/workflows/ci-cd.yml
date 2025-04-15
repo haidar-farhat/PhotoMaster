@@ -26,8 +26,14 @@ jobs:
 
       - name: Copy Files to Server
         run: |
-          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no \
-            -r laravel electron-react deploy ubuntu@${{ env.SERVER_IP }}:~/
+          # First check if directories exist
+          ls -la
+          # Copy files one by one to avoid timeout
+          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -r laravel ubuntu@${{ env.SERVER_IP }}:~/
+          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -r electron-react ubuntu@${{ env.SERVER_IP }}:~/
+          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -r deploy ubuntu@${{ env.SERVER_IP }}:~/
+          # Create a deployment marker to indicate successful copy
+          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} "touch ~/deployment_$(date +%s)"
 
       - name: Execute Remote Commands
         run: |
