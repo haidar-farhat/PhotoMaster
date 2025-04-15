@@ -11,12 +11,10 @@ env:
   SERVER_IP: 13.39.161.145
   APP_DIR: ~/PhotoMaster
   DEPLOY_DIR: ~/deploy
-  LARAVEL_DIR: /var/www/photomaster/laravel
-  REACT_DIR: /var/www/photomaster/electron-react
 
 jobs:
   deploy:
-    name: Secure Deployment to EC2
+    name: Production Deployment
     runs-on: ubuntu-latest
 
     steps:
@@ -25,167 +23,110 @@ jobs:
 
       - name: Validate Secrets
         run: |
-          if [ -z "${{ secrets.EC2_PEM_KEY }}" ]; then
-            echo "::error::EC2_PEM_KEY secret is missing"
-            exit 1
-          fi
-          echo "Secrets validation passed"
+          required_secrets=("EC2_PEM_KEY" "DB_ROOT_PASSWORD" "DB_USERNAME" "DB_PASSWORD")
+          for secret in "${required_secrets[@]}"; do
+            if [ -z "${{ secrets[$secret] }}" ]; then
+              echo "::error::Missing required secret: $secret"
+              exit 1
+            fi
+          done
+          echo "✓ All secrets validated"
 
-      - name: Configure SSH Infrastructure
+      - name: Configure SSH Connection
         run: |
-          set -euo pipefail
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_PEM_KEY }}" | tr -d '\r' > ~/.ssh/key.pem
+          echo "${{ secrets.EC2_PEM_KEY }}" > ~/.ssh/key.pem
           chmod 600 ~/.ssh/key.pem
           ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: Verify Server Connectivity
+      - name: Verify Server Access
         run: |
-          set -euo pipefail
-          echo "Testing SSH connection to ${{ env.SERVER_IP }}..."
-          ssh -i ~/.ssh/key.pem -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-            ubuntu@${{ env.SERVER_IP }} "echo 'Connection successful'"
+          ssh -i ~/.ssh/key.pem -o ConnectTimeout=15 \
+            ubuntu@${{ env.SERVER_IP }} "docker --version && docker-compose --version"
 
-      - name: Synchronize Repository
+      - name: Synchronize Application Code
         run: |
-          set -euo pipefail
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} << 'EOSSH'
-            set -euo pipefail
-            mkdir -p ~/.ssh
+            set -eo pipefail
             
-            # Configure GitHub SSH access
-            cat > ~/.ssh/config << 'EOCFG'
-            Host github.com
-              HostName github.com
-              User git
-              IdentityFile ~/.ssh/id_ed25519
-              IdentitiesOnly yes
-EOCFG
-            chmod 600 ~/.ssh/config
-
-            # Repository management
+            # Ensure clean repository state
             if [ -d "$APP_DIR" ]; then
-              echo "Updating existing repository..."
-              git -C "$APP_DIR" pull origin main
+              cd "$APP_DIR"
+              git fetch origin
+              git reset --hard origin/main
+              git clean -fd
             else
-              echo "Cloning new repository..."
-              git clone git@github.com:haidar-farhat/PhotoMaster.git "$APP_DIR"
+              git clone https://github.com/haidar-farhat/PhotoMaster.git "$APP_DIR"
             fi
 
-            # Create symbolic links
+            # Refresh symbolic links
             ln -sfn "$APP_DIR/deploy" ~/deploy
             ln -sfn "$APP_DIR/laravel" ~/laravel
             ln -sfn "$APP_DIR/electron-react" ~/electron-react
-EOSSH
 
-      - name: Initialize Server Environment
-        run: |
-          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} << 'EOSSH'
-            set -euo pipefail
-
-            install_docker() {
-              echo "Installing Docker..."
-              sudo apt-get update -qq
-              sudo apt-get install -qq -y ca-certificates curl gnupg
-              sudo install -m 0755 -d /etc/apt/keyrings
-              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-                sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-              sudo chmod a+r /etc/apt/keyrings/docker.gpg
-              echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-                https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
-                sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-              sudo apt-get update -qq
-              sudo apt-get install -qq -y docker-ce docker-ce-cli containerd.io \
-                docker-buildx-plugin docker-compose-plugin
-              sudo usermod -aG docker $USER
-            }
-
-            install_docker_compose() {
-              echo "Installing Docker Compose..."
-              sudo curl -L "https://github.com/docker/compose/releases/download/v2.18.1/docker-compose-$(uname -s)-$(uname -m)" \
-                -o /usr/local/bin/docker-compose
-              sudo chmod +x /usr/local/bin/docker-compose
-            }
-
-            # System package management
-            command -v docker >/dev/null 2>&1 || install_docker
-            command -v docker-compose >/dev/null 2>&1 || install_docker_compose
-            command -v git >/dev/null 2>&1 || sudo apt-get install -y git
-
-            # Directory structure setup
-            sudo mkdir -p "$LARAVEL_DIR"/{storage,bootstrap/cache}
-            sudo mkdir -p "$REACT_DIR"/build
-            sudo chown -R www-data:www-data "$LARAVEL_DIR"
-            sudo chmod -R 775 "$LARAVEL_DIR"/storage "$LARAVEL_DIR"/bootstrap/cache
-
-            # Prepare deployment scripts
-            chmod +x "$DEPLOY_DIR"/*.sh
-EOSSH
 
       - name: Execute Deployment Scripts
         run: |
-          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} << EOF
-            set -euo pipefail
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} << 'EOF'
             cd "$DEPLOY_DIR"
+            chmod +x *.sh
             
-            # Execute setup scripts
-            ./setup.sh
-            if [ ! -f ~/.db_setup_complete ]; then
+            # Conditional database setup
+            if [ ! -f ~/.db_initialized ]; then
               ./database.sh \
                 "${{ secrets.DB_ROOT_PASSWORD }}" \
                 "${{ secrets.DB_USERNAME }}" \
                 "${{ secrets.DB_PASSWORD }}"
-              touch ~/.db_setup_complete
+              touch ~/.db_initialized
             fi
+
             ./app.sh "${{ secrets.DB_USERNAME }}" "${{ secrets.DB_PASSWORD }}"
 EOF
 
-      - name: Deploy Containers
+      - name: Deploy Docker Services
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} << 'EOSSH'
-            set -euo pipefail
-            export DB_USERNAME="${{ secrets.DB_USERNAME }}"
-            export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
-            export DB_ROOT_PASSWORD="${{ secrets.DB_ROOT_PASSWORD }}"
-
-            # Build application images
-            docker build -t photomaster-laravel:latest \
-              -f laravel/Dockerfile --target production ./laravel
-            docker build -t photomaster-react:latest \
-              -f electron-react/Dockerfile --target production ./electron-react
-
-            # Container orchestration
+            set -x
             cd "$DEPLOY_DIR"
-            docker-compose down --remove-orphans
-            docker-compose up -d --build
-            docker-compose ps
+            
+            # Build fresh images
+            docker build -t photomaster-laravel:latest \
+              -f ../laravel/Dockerfile --target production ../laravel
+            docker build -t photomaster-react:latest \
+              -f ../electron-react/Dockerfile --target production ../electron-react
+
+            # Rotate containers
+            docker-compose down --timeout 30
+            docker-compose up -d --force-recreate
+            docker-compose ps --all
 EOSSH
 
-      - name: Post-Deployment Verification
+      - name: Verify Deployment
         run: |
-          echo "Deployment Summary:"
-          echo "• Server: ${{ env.SERVER_IP }}"
-          echo "• Timestamp: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
-          echo "• Status: Success"
+          echo "✅ Deployment completed successfully at $(date +'%Y-%m-%d %H:%M:%S %Z')"
+          echo "Server: ${{ env.SERVER_IP }}"
+          echo "Commit: ${{ github.sha }}"
 
-      - name: Security Cleanup
+      - name: Cleanup Credentials
         if: always()
-        run: rm -fv ~/.ssh/key.pem
+        run: rm -f ~/.ssh/key.pem
 
-      - name: Failure Notification
+      - name: Failure Handler
         if: failure()
         uses: actions/github-script@v6
         with:
           script: |
-            const message = `🚨 Deployment failed!
-            • Workflow: \${{ github.workflow }}
-            • Commit: \${{ github.sha }}
-            • Server: \${{ env.SERVER_IP }}
-            • Logs: \${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }}`;
-            
+            const message = `
+            Deployment failure detected!
+            - Workflow: ${{ github.workflow }}
+            - Server: ${{ env.SERVER_IP }}
+            - Run ID: ${{ github.run_id }}
+            - Commit: ${{ github.sha }}
+            - Logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            `;
             github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: 'Deployment Failure Alert',
+              title: '🚨 Deployment Failure - ${{ env.SERVER_IP }}',
               body: message.replace(/  +/g, ' ')
             });
