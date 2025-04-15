@@ -32,15 +32,17 @@ jobs:
       - name: Clone or Pull Repository
         run: |
           echo "Setting up repository on server..."
-          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} <<'EOF'
+          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} << 'EOF'
             mkdir -p ~/.ssh
 
             echo "Configuring SSH for GitHub..."
-            echo "Host github.com" > ~/.ssh/config
-            echo "  HostName github.com" >> ~/.ssh/config
-            echo "  User git" >> ~/.ssh/config
-            echo "  IdentityFile ~/.ssh/id_ed25519" >> ~/.ssh/config
-            echo "  IdentitiesOnly yes" >> ~/.ssh/config
+            cat > ~/.ssh/config <<EOCONFIG
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+EOCONFIG
             chmod 600 ~/.ssh/config
 
             if [ -d "~/PhotoMaster" ]; then
@@ -61,7 +63,7 @@ EOF
       - name: Setup Server Environment
         run: |
           echo "Setting up server environment..."
-          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} <<EOF
+          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} << 'EOF'
             if ! command -v docker &> /dev/null; then
               echo "Installing Docker..."
               sudo apt-get update
@@ -69,15 +71,15 @@ EOF
               sudo install -m 0755 -d /etc/apt/keyrings
               curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
               sudo chmod a+r /etc/apt/keyrings/docker.gpg
-              echo "deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \$(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+              echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
               sudo apt-get update
               sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-              sudo usermod -aG docker \$USER
+              sudo usermod -aG docker $USER
             fi
 
             if ! command -v docker-compose &> /dev/null; then
               echo "Installing Docker Compose..."
-              sudo curl -L "https://github.com/docker/compose/releases/download/v2.18.1/docker-compose-\$(uname -s)-\$(uname -m)" -o /usr/local/bin/docker-compose
+              sudo curl -L "https://github.com/docker/compose/releases/download/v2.18.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
               sudo chmod +x /usr/local/bin/docker-compose
             fi
 
@@ -105,7 +107,7 @@ EOF
       - name: Run Setup Scripts
         run: |
           echo "Running setup scripts..."
-          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} <<EOF
+          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} << EOF
             cd ~/deploy
             ./setup.sh
             if [ ! -f ~/.db_setup_complete ]; then
@@ -118,16 +120,17 @@ EOF
       - name: Build and Deploy Docker Containers
         run: |
           echo "Building and deploying Docker containers..."
-          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} <<EOF
-            cd ~/PhotoMaster
-            sudo docker build -t photomaster-laravel:latest -f laravel/Dockerfile --target production ./laravel
-            sudo docker build -t photomaster-react:latest -f electron-react/Dockerfile --target production ./electron-react
-
+          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} << EOF
             cd ~/deploy
             export DB_USERNAME=${{ secrets.DB_USERNAME }}
             export DB_PASSWORD=${{ secrets.DB_PASSWORD }}
             export DB_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
 
+            cd ~/PhotoMaster
+            sudo docker build -t photomaster-laravel:latest -f laravel/Dockerfile --target production ./laravel
+            sudo docker build -t photomaster-react:latest -f electron-react/Dockerfile --target production ./electron-react
+
+            cd ~/deploy
             sudo docker-compose down
             sudo docker-compose up -d
 
