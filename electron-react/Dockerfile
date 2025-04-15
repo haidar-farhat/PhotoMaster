@@ -38,7 +38,12 @@ RUN npm ci || (echo "npm ci failed, falling back to npm install..." && npm insta
 COPY . .
 
 # Build app
-RUN npm run build
+# Increase Node memory limit and run build
+RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build
+
+# Clean up unnecessary files to reduce image size
+RUN rm -rf node_modules && \
+    rm -rf ~/.npm
 
 # Production stage using Nginx
 FROM nginx:alpine AS production
