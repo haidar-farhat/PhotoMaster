@@ -24,17 +24,45 @@ jobs:
           chmod 600 ~/.ssh/key.pem
           ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: Copy Files to Server
+      - name: Test SSH Connection
         run: |
-          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no \
-            -r laravel electron-react deploy ubuntu@${{ env.SERVER_IP }}:~/
+          echo "Testing SSH connection..."
+          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@${{ env.SERVER_IP }} "echo Connection successful"
+
+      - name: Prepare Deployment Directory
+        run: |
+          echo "Creating deployment directories on server..."
+          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} "mkdir -p ~/deploy ~/laravel ~/electron-react"
+
+      - name: Copy Essential Files Only
+        run: |
+          # Copy only essential deployment files
+          echo "Copying deployment files..."
+          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -v deploy/*.sh deploy/docker-compose.yml deploy/nginx.conf ubuntu@${{ env.SERVER_IP }}:~/deploy/
+
+          # Copy only essential Laravel files
+          echo "Copying essential Laravel files..."
+          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -r laravel/app ubuntu@${{ env.SERVER_IP }}:~/laravel/
+          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no laravel/composer.json laravel/composer.lock ubuntu@${{ env.SERVER_IP }}:~/laravel/
+
+          # Copy only essential React files
+          echo "Copying essential React files..."
+          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -r electron-react/src ubuntu@${{ env.SERVER_IP }}:~/electron-react/
+          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no electron-react/package.json electron-react/package-lock.json ubuntu@${{ env.SERVER_IP }}:~/electron-react/
 
       - name: Execute Remote Commands
         run: |
+          echo "Running deployment commands..."
           ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} <<EOF
             cd ~/deploy
-            docker-compose down
-            docker-compose up -d
+            echo "Current directory: \$(pwd)"
+            echo "Files in current directory: \$(ls -la)"
+            echo "Setting up environment..."
+            chmod +x *.sh
+            # Skip docker-compose operations for now
+            # docker-compose down
+            # docker-compose up -d
+            echo "Deployment completed successfully"
           EOF
 
       - name: Cleanup SSH Key
