@@ -1,0 +1,46 @@
+0 verbose cli C:\Program Files\nodejs\node.exe C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js
+1 info using npm@10.9.2
+2 info using node@v22.14.0
+3 silly config load:file:C:\Program Files\nodejs\node_modules\npm\npmrc
+4 silly config load:file:C:\xampp_2\htdocs\electro\PhotoMaster\electron-react\.npmrc
+5 silly config load:file:C:\Users\Haydar\.npmrc
+6 silly config load:file:C:\Users\Haydar\AppData\Roaming\npm\etc\npmrc
+7 verbose title npm install electron electron-is-dev
+8 verbose argv "install" "--save-dev" "electron" "electron-is-dev"
+9 verbose logfile logs-max:10 dir:C:\xampp_2\htdocs\electro\PhotoMaster\electron-react\clear\_logs\2025-04-12T18_08_55_642Z-
+10 verbose logfile C:\xampp_2\htdocs\electro\PhotoMaster\electron-react\clear\_logs\2025-04-12T18_08_55_642Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4345298944 maxSize:1086324736 maxEntrySize:543162368
+13 silly idealTree buildDeps
+14 silly fetch manifest electron@*
+15 silly packumentCache full:https://registry.npmjs.org/electron cache-miss
+16 http fetch GET https://registry.npmjs.org/electron attempt 1 failed with ENOBUFS
+17 http fetch GET https://registry.npmjs.org/electron attempt 2 failed with ENOBUFS
+18 http fetch GET https://registry.npmjs.org/electron attempt 3 failed with ENOBUFS
+19 silly fetch manifest electron-is-dev@*
+20 silly packumentCache full:https://registry.npmjs.org/electron-is-dev cache-miss
+21 http fetch GET https://registry.npmjs.org/electron-is-dev attempt 1 failed with ENOBUFS
+22 http fetch GET https://registry.npmjs.org/electron-is-dev attempt 2 failed with ENOBUFS
+23 http fetch GET https://registry.npmjs.org/electron-is-dev attempt 3 failed with ENOBUFS
+24 silly placeDep ROOT electron@ OK for:  want: *
+25 silly placeDep ROOT electron-is-dev@ OK for:  want: *
+26 verbose type system
+27 verbose stack FetchError: request to https://registry.npmjs.org/electron failed, reason: 
+27 verbose stack     at ClientRequest.<anonymous> (C:\Program Files\nodejs\node_modules\npm\node_modules\minipass-fetch\lib\index.js:130:14)
+27 verbose stack     at ClientRequest.emit (node:events:518:28)
+27 verbose stack     at emitErrorEvent (node:_http_client:104:11)
+27 verbose stack     at _destroy (node:_http_client:898:9)
+27 verbose stack     at onSocketNT (node:_http_client:918:5)
+27 verbose stack     at process.processTicksAndRejections (node:internal/process/task_queues:91:21)
+28 error code ENOBUFS
+29 error errno ENOBUFS
+30 error request to https://registry.npmjs.org/electron failed, reason: 
+31 silly unfinished npm timer reify 1744481336016
+32 silly unfinished npm timer reify:loadTrees 1744481336017
+33 verbose cwd C:\xampp_2\htdocs\electro\PhotoMaster\electron-react
+34 verbose os Windows_NT 10.0.26100
+35 verbose node v22.14.0
+36 verbose npm  v10.9.2
+37 verbose exit 1
+38 verbose code 1
+39 error A complete log of this run can be found in: C:\xampp_2\htdocs\electro\PhotoMaster\electron-react\clear\_logs\2025-04-12T18_08_55_642Z-debug-0.log

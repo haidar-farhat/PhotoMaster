@@ -1,0 +1,6 @@
+# .dockerignore
+**/laravel/public/storage
+node_modules/
+vendor/
+.git/
+.env

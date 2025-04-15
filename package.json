@@ -1,0 +1,14 @@
+{
+  "dependencies": {
+    "@toast-ui/react-image-editor": "^3.15.2",
+    "electron-is-dev": "^3.0.1",
+    "fabric": "^5.5.2",
+    "tui-image-editor": "^3.15.3"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "electron": "^19.0.0",
+    "electron-builder": "^26.0.12",
+    "wait-on": "^8.0.3"
+  }
+}
