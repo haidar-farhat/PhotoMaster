@@ -29,17 +29,36 @@ jobs:
           echo "Testing SSH connection..."
           ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} "echo Connection successful"
 
-      - name: Copy All Deployment Files
+      - name: Clone or Pull Repository
         run: |
-          # Copy deployment scripts and configs
-          echo "Copying deployment files..."
-          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no deploy/*.sh deploy/docker-compose.yml deploy/nginx.conf ubuntu@${{ env.SERVER_IP }}:~/deploy/
+          echo "Setting up repository on server..."
+          ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} <<EOF
+            # Set up SSH config for GitHub
+            mkdir -p ~/.ssh
+            cat <<CONFIG > ~/.ssh/config
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+CONFIG
 
-          # Copy Dockerfiles
-          echo "Copying Dockerfiles..."
-          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no laravel/Dockerfile ubuntu@${{ env.SERVER_IP }}:~/laravel/
-          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no electron-react/Dockerfile ubuntu@${{ env.SERVER_IP }}:~/electron-react/
-          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no electron-react/nginx/default.conf ubuntu@${{ env.SERVER_IP }}:~/electron-react/nginx/default.conf
+            # Check if repo already exists
+            if [ -d "~/PhotoMaster" ]; then
+              echo "Repository exists, pulling latest changes..."
+              cd ~/PhotoMaster
+              git pull origin main
+            else
+              echo "Cloning repository using SSH..."
+              git clone git@github.com:haidar-farhat/PhotoMaster.git ~/PhotoMaster
+              cd ~/PhotoMaster
+            fi
+
+            # Create symbolic links
+            ln -sf ~/PhotoMaster/deploy ~/deploy
+            ln -sf ~/PhotoMaster/laravel ~/laravel
+            ln -sf ~/PhotoMaster/electron-react ~/electron-react
+EOF
 
       - name: Setup Server Environment
         run: |
@@ -58,32 +77,38 @@ jobs:
               sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
               sudo usermod -aG docker \$USER
             fi
-            
+
             # Install Docker Compose if not already installed
             if ! command -v docker-compose &> /dev/null; then
               echo "Installing Docker Compose..."
               sudo curl -L "https://github.com/docker/compose/releases/download/v2.18.1/docker-compose-\$(uname -s)-\$(uname -m)" -o /usr/local/bin/docker-compose
               sudo chmod +x /usr/local/bin/docker-compose
             fi
-            
+
+            # Install Git if not already installed
+            if ! command -v git &> /dev/null; then
+              echo "Installing Git..."
+              sudo apt-get update
+              sudo apt-get install -y git
+            fi
+
             # Create required directories
             echo "Creating directories..."
             sudo mkdir -p /var/www/photomaster/laravel/storage
             sudo mkdir -p /var/www/photomaster/laravel/bootstrap/cache
             sudo mkdir -p /var/www/photomaster/electron-react/build
-            sudo mkdir -p /var/www/photomaster/electron-react/nginx
-            
+
             # Set permissions
             echo "Setting permissions..."
             sudo chown -R www-data:www-data /var/www/photomaster
             sudo chmod -R 775 /var/www/photomaster/laravel/storage
             sudo chmod -R 775 /var/www/photomaster/laravel/bootstrap/cache
-            
+
             # Make deployment scripts executable
             echo "Making scripts executable..."
             cd ~/deploy
             chmod +x *.sh
-          EOF
+EOF
 
       - name: Run Setup Scripts
         run: |
@@ -97,7 +122,7 @@ jobs:
               touch ~/.db_setup_complete
             fi
             ./app.sh "${{ secrets.DB_USERNAME }}" "${{ secrets.DB_PASSWORD }}"
-          EOF
+EOF
 
       - name: Build and Deploy Docker Containers
         run: |
@@ -107,19 +132,20 @@ jobs:
             export DB_USERNAME=${{ secrets.DB_USERNAME }}
             export DB_PASSWORD=${{ secrets.DB_PASSWORD }}
             export DB_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
-            
-            # Pull latest Docker images
-            sudo docker-compose pull
-            
-            # Stop and remove existing containers
+
+            # Build Docker images with current code
+            cd ~/PhotoMaster
+            sudo docker build -t photomaster-laravel:latest -f laravel/Dockerfile --target production ./laravel
+            sudo docker build -t photomaster-react:latest -f electron-react/Dockerfile --target production ./electron-react
+
+            # Deploy with docker-compose
+            cd ~/deploy
             sudo docker-compose down
-            
-            # Start new containers
             sudo docker-compose up -d
-            
+
             # Check container status
             sudo docker-compose ps
-          EOF
+EOF
 
       - name: Deployment Summary
         run: |
