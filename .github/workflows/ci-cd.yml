@@ -240,39 +240,40 @@ jobs:
 
             # Configure Nginx
             log "Configuring Nginx"
-            sudo tee /etc/nginx/sites-available/photomaster > /dev/null << 'EOL'
-server {
-    listen 80;
-    server_name 13.39.161.145;
-    root /var/www/photomaster/laravel/public;
+            sudo rm -f /etc/nginx/sites-available/photomaster
+            sudo touch /etc/nginx/sites-available/photomaster
 
-    add_header X-Frame-Options "SAMEORIGIN";
-    add_header X-Content-Type-Options "nosniff";
-
-    index index.php;
-
-    charset utf-8;
-
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
-
-    location = /favicon.ico { access_log off; log_not_found off; }
-    location = /robots.txt  { access_log off; log_not_found off; }
-
-    error_page 404 /index.php;
-
-    location ~ \.php$ {
-        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-
-    location ~ /\.(?!well-known).* {
-        deny all;
-    }
-}
-EOL
+            sudo bash -c 'echo "server {" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    listen 80;" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    server_name 13.39.161.145;" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    root /var/www/photomaster/laravel/public;" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    add_header X-Frame-Options \"SAMEORIGIN\";" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    add_header X-Content-Type-Options \"nosniff\";" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    index index.php;" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    charset utf-8;" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    location / {" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "        try_files \$uri \$uri/ /index.php?\$query_string;" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    }" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    location = /favicon.ico { access_log off; log_not_found off; }" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    location = /robots.txt  { access_log off; log_not_found off; }" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    error_page 404 /index.php;" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    location ~ \\.php$ {" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "        include fastcgi_params;" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    }" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    location ~ /\\.(?!well-known).* {" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "        deny all;" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "    }" >> /etc/nginx/sites-available/photomaster'
+            sudo bash -c 'echo "}" >> /etc/nginx/sites-available/photomaster'
 
             sudo ln -sf /etc/nginx/sites-available/photomaster /etc/nginx/sites-enabled/
             sudo rm -f /etc/nginx/sites-enabled/default
