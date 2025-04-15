@@ -1,56 +1,89 @@
-FROM php:8.1-apache
+# syntax=docker/dockerfile:1
 
-# Install system dependencies and PHP extensions
+# Base PHP image
+FROM php:8.2-fpm AS base
+
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     git \
     curl \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
-    libmagickwand-dev \
-    libwebp-dev \
-    libjpeg-dev \
-    libxpm-dev \
-    libfreetype6-dev \
+    libzip-dev \
     zip \
     unzip \
-    && pecl install imagick \
-    && docker-php-ext-enable imagick \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install gd \
-    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
 
-# Get latest Composer
+# Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # Set working directory
 WORKDIR /var/www/html
 
-# Create necessary directories and set permissions
-RUN mkdir -p \
-    bootstrap/cache \
-    storage \
-    storage/framework \
-    storage/framework/sessions \
-    storage/framework/views \
-    storage/framework/cache
+# Test stage
+FROM base AS test
 
-RUN chmod -R 775 storage bootstrap/cache
+# Set development environment
+ENV APP_ENV=testing
 
-# Copy existing application directory contents
-COPY . /var/www/html
+# Copy composer files
+COPY composer.json composer.lock ./
 
-# Install dependencies
-RUN composer install --no-scripts --no-autoloader && \
-    composer dump-autoload --optimize && \
-    php artisan cache:clear && \
-    php artisan config:clear && \
-    php artisan storage:link
+# Install dependencies (no scripts, no autoloader)
+RUN composer install --prefer-dist --no-scripts --no-autoloader --no-interaction
 
-# Expose port 8000
-EXPOSE 8000
+# Copy application files
+COPY . .
 
-# Start PHP server
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+# Generate autoload files
+RUN composer dump-autoload --optimize
+
+# Set permissions
+RUN chown -R www-data:www-data /var/www/html \
+    && chmod -R 755 /var/www/html/storage
+
+# Create .env.testing file
+RUN cp .env.example .env.testing \
+    && php artisan key:generate --env=testing
+
+# Run tests
+CMD ["php", "artisan", "test"]
+
+# Production stage
+FROM base AS production
+
+# Set production environment
+ENV APP_ENV=production
+ENV APP_DEBUG=false
+
+# Copy composer files
+COPY composer.json composer.lock ./
+
+# Install dependencies (no dev dependencies, no scripts, no autoloader)
+RUN composer install --prefer-dist --no-dev --no-scripts --no-autoloader --no-interaction
+
+# Copy application files
+COPY . .
+
+# Generate autoload files
+RUN composer dump-autoload --optimize
+
+# Set permissions
+RUN chown -R www-data:www-data /var/www/html \
+    && chmod -R 755 /var/www/html/storage \
+    && chmod -R 755 /var/www/html/bootstrap/cache
+
+# Generate the application key
+RUN php artisan key:generate --force
+
+# Cache configuration and routes
+RUN php artisan config:cache \
+    && php artisan route:cache \
+    && php artisan view:cache
+
+# Expose port 9000
+EXPOSE 9000
+
+# Start PHP-FPM
+CMD ["php-fpm"]

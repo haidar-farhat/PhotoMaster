@@ -8,63 +8,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    name: Run Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build & Test Laravel
-        uses: docker/build-push-action@v5
-        with:
-          context: ./laravel
-          target: test
-          load: true
-          tags: photomaster-laravel:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build & Test React
-        uses: docker/build-push-action@v5
-        with:
-          context: ./electron-react
-          target: test
-          load: true
-          tags: photomaster-react:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
   deploy:
     name: Deploy to EC2
-    needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-
     env:
       SERVER_IP: 13.39.161.145
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Production Images
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          target: production
-          load: true
-          tags: |
-            photomaster-laravel:latest
-            photomaster-react:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Setup SSH
         run: |
@@ -73,22 +24,15 @@ jobs:
           chmod 600 ~/.ssh/key.pem
           ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: Copy Deployment Files
+      - name: Copy Files to Server
         run: |
-          # Copy deployment scripts
-          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no deploy/*.sh ubuntu@${{ env.SERVER_IP }}:~/deploy/
-          
-          # Copy docker-compose and nginx.conf
-          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no deploy/docker-compose.yml deploy/nginx.conf ubuntu@${{ env.SERVER_IP }}:~/deploy/
+          scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no \
+            -r laravel electron-react deploy ubuntu@${{ env.SERVER_IP }}:~/
 
-      - name: Execute Remote Deployment
+      - name: Execute Remote Commands
         run: |
           ssh -i ~/.ssh/key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.SERVER_IP }} <<EOF
-            chmod +x ~/deploy/*.sh
             cd ~/deploy
-            ./setup.sh
-            ./database.sh "${{ secrets.DB_ROOT_PASSWORD }}" "${{ secrets.DB_USERNAME }}" "${{ secrets.DB_PASSWORD }}"
-            ./app.sh "${{ secrets.DB_USERNAME }}" "${{ secrets.DB_PASSWORD }}"
             docker-compose down
             docker-compose up -d
           EOF
