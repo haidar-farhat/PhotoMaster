@@ -63,19 +63,25 @@ jobs:
       - name: Execute Deployment Scripts
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
-            "set -eo pipefail; \
-            cd \"${{ env.APP_DIR }}/deploy\" && \
-            chmod +x *.sh && \
-            if [ ! -f ~/.db_initialized ]; then \
-              ./database.sh \
-                \"${{ secrets.DB_ROOT_PASSWORD }}\" \
-                \"${{ secrets.DB_USERNAME }}\" \
-                \"${{ secrets.DB_PASSWORD }}\"; \
-              touch ~/.db_initialized; \
-            fi && \
-            ./app.sh \
-              \"${{ secrets.DB_USERNAME }}\" \
-              \"${{ secrets.DB_PASSWORD }}\""
+            "set -eo pipefail;
+            cd \"${{ env.APP_DIR }}/deploy\" &&
+            # Database is initialized automatically by the mysql container on first run
+            # We still touch the flag file to prevent potential future re-initialization attempts
+            if [ ! -f ~/.db_initialized ]; then
+              echo 'Marking database as initialized (handled by mysql container).'
+              touch ~/.db_initialized;
+            fi &&
+            # Run Laravel setup commands inside the container
+            docker-compose exec -T laravel bash -c ' \
+              set -e && \
+              cd /var/www/html && \
+              php artisan key:generate --force && \
+              php artisan config:cache && \
+              php artisan route:cache && \
+              php artisan view:cache && \
+              php artisan migrate --force \
+            '
+            echo 'Laravel setup commands executed successfully.'"
 
       - name: Deploy Docker Services
         run: |
