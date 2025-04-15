@@ -8,256 +8,62 @@ on:
   workflow_dispatch:
 
 jobs:
-  laravel-test:
-    name: Laravel Test
-    runs-on: ubuntu-latest
-
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_DATABASE: photomaster_test
-          MYSQL_ROOT_PASSWORD: password
-        ports:
-          - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: "8.1"
-          tools: composer:v2
-          extensions: mbstring, pdo_mysql, xml, zip, curl, gd
-
-      - name: Install Laravel Dependencies
-        working-directory: ./laravel
-        run: composer install --no-progress --no-interaction
-
-      - name: Prepare Laravel Environment
-        working-directory: ./laravel
-        env:
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-        run: |
-          cp .env.example .env
-          php artisan key:generate
-          php artisan config:clear
-
-      - name: Run Laravel Tests
-        working-directory: ./laravel
-        env:
-          DB_DATABASE: photomaster_test
-          DB_USERNAME: root
-          DB_PASSWORD: password
-        run: php artisan test --exclude-group incomplete
-
-  react-test:
-    name: React Test
+  test:
+    name: Run Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Test Laravel
+        uses: docker/build-push-action@v5
         with:
-          node-version: "18"
+          context: ./laravel
+          target: test
+          load: true
+          tags: photomaster-laravel:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Update package.json Versions
-        working-directory: ./electron-react
-        run: |
-          npm pkg set dependencies.react="^18.2.0"
-          npm pkg set dependencies.react-dom="^18.2.0"
-          npm pkg set dependencies.react-konva="^18.2.10"
-          npm pkg set engines.node=">=16.0.0"
-
-      - name: Run NPM Diagnostics
-        working-directory: ./electron-react
-        run: |
-          npm config list
-          npm --version
-          node --version
-
-      - name: Clean and Install Node Modules
-        working-directory: ./electron-react
-        run: |
-          rm -rf node_modules package-lock.json
-          npm cache clean --force
-          npm cache verify
-          npm install --no-fund --no-audit
-
-      - name: Lint and Test React Code
-        working-directory: ./electron-react
-        run: |
-          npm run lint
-          npm test
+      - name: Build and Test React
+        uses: docker/build-push-action@v5
+        with:
+          context: ./electron-react
+          target: test
+          load: true
+          tags: photomaster-react:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   deploy:
     name: Deploy
-    needs: [laravel-test, react-test]
+    needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     env:
       SERVER_IP: 13.39.161.145
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create Deployment Files
-        run: |
-          mkdir -p deploy
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-          # Create nginx configuration file
-          cat > deploy/nginx.conf <<EOF
-server {
-    listen 80;
-    server_name ${SERVER_IP};
-    root /var/www/photomaster/laravel/public;
-
-    add_header X-Frame-Options "SAMEORIGIN";
-    add_header X-Content-Type-Options "nosniff";
-
-    index index.php;
-    charset utf-8;
-
-    location / {
-        try_files \$uri \$uri/ /index.php?\$query_string;
-    }
-
-    location = /favicon.ico { access_log off; log_not_found off; }
-    location = /robots.txt  { access_log off; log_not_found off; }
-
-    error_page 404 /index.php;
-
-    location ~ \.php$ {
-        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
-        include fastcgi_params;
-    }
-
-    location ~ /\.(?!well-known).* {
-        deny all;
-    }
-}
-EOF
-
-          # Create PictureTest.php
-          cat > deploy/PictureTest.php <<'EOL'
-<?php
-
-namespace Tests\Feature;
-use Tests\TestCase;
-
-class PictureTest extends TestCase
-{
-    /**
-     * @group incomplete
-     */
-    public function test_upload_picture()
-    {
-        $this->markTestSkipped("This functionality is not yet implemented");
-    }
-
-    /**
-     * @group incomplete
-     */
-    public function test_replace_image()
-    {
-        $this->markTestSkipped("This functionality is not yet implemented");
-    }
-
-    /**
-     * @group incomplete
-     */
-    public function test_delete_picture()
-    {
-        $this->markTestSkipped("This functionality is not yet implemented");
-    }
-}
-EOL
-
-          # Create setup.sh
-          cat > deploy/setup.sh <<'EOL'
-#!/bin/bash
-set -e
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting server setup"
-sudo apt-get update
-sudo apt-get install -y nginx mysql-server php8.1-fpm php8.1-cli php8.1-mysql \
-  php8.1-mbstring php8.1-xml php8.1-zip php8.1-curl php8.1-gd php8.1-bcmath \
-  php8.1-intl php8.1-redis php8.1-common php8.1-json curl git unzip nodejs npm redis-server
-if ! command -v composer &> /dev/null; then
-  curl -sS https://getcomposer.org/installer | sudo php -- --install-dir=/usr/local/bin --filename=composer
-fi
-sudo sed -i 's/memory_limit = .*/memory_limit = 512M/' /etc/php/8.1/fpm/php.ini
-sudo sed -i 's/upload_max_filesize = .*/upload_max_filesize = 64M/' /etc/php/8.1/fpm/php.ini
-sudo sed -i 's/post_max_size = .*/post_max_size = 64M/' /etc/php/8.1/fpm/php.ini
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Setup completed successfully"
-EOL
-
-          # Create database.sh
-          cat > deploy/database.sh <<'EOL'
-#!/bin/bash
-set -e
-DB_ROOT_PASSWORD="$1"
-DB_USERNAME="$2"
-DB_PASSWORD="$3"
-sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_ROOT_PASSWORD}';"
-sudo mysql -e "CREATE DATABASE IF NOT EXISTS photomaster;"
-sudo mysql -e "CREATE USER IF NOT EXISTS '${DB_USERNAME}'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';"
-sudo mysql -e "GRANT ALL PRIVILEGES ON photomaster.* TO '${DB_USERNAME}'@'localhost';"
-sudo mysql -e "DROP USER IF EXISTS ''@'localhost'"
-sudo mysql -e "DROP DATABASE IF EXISTS test"
-sudo mysql -e "FLUSH PRIVILEGES;"
-echo "Database configured successfully"
-EOL
-
-          # Create app.sh
-          cat > deploy/app.sh <<'EOL'
-#!/bin/bash
-set -e
-DB_USERNAME="$1"
-DB_PASSWORD="$2"
-REPO_URL="$3"
-sudo mkdir -p /var/www/photomaster
-sudo chown -R ubuntu:ubuntu /var/www/photomaster
-cd /var/www/photomaster
-if [ -d ".git" ]; then
-  git fetch --all
-  git reset --hard origin/main
-else
-  cd /var/www
-  sudo rm -rf photomaster
-  git clone "$REPO_URL" photomaster
-  cd photomaster
-  git checkout main
-fi
-cp ~/deploy/PictureTest.php /var/www/photomaster/laravel/tests/Feature/PictureTest.php
-cd /var/www/photomaster/laravel
-composer install --no-dev --optimize-autoloader
-cp .env.example .env
-sed -i "s/DB_DATABASE=.*/DB_DATABASE=photomaster/" .env
-sed -i "s/DB_USERNAME=.*/DB_USERNAME=${DB_USERNAME}/" .env
-sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=${DB_PASSWORD}/" .env
-php artisan key:generate
-php artisan migrate --force
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
-cd /var/www/photomaster/electron-react
-npm install
-npm run build
-sudo chown -R www-data:www-data /var/www/photomaster
-sudo chmod -R 755 /var/www/photomaster
-sudo chmod -R 775 /var/www/photomaster/laravel/storage /var/www/photomaster/laravel/bootstrap/cache
-sudo systemctl restart php8.1-fpm nginx mysql redis-server
-sudo systemctl enable php8.1-fpm nginx mysql redis-server
-echo "Deployment completed successfully at $(date)"
-EOL
-
-          chmod +x deploy/setup.sh deploy/database.sh deploy/app.sh
+      - name: Build Production Images
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: production
+          load: true
+          tags: |
+            photomaster-laravel:latest
+            photomaster-react:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Setup SSH
         run: |
@@ -266,20 +72,98 @@ EOL
           chmod 600 ~/.ssh/key.pem
           ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: Copy Scripts to Server
-        run: scp -i ~/.ssh/key.pem -o StrictHostKeyChecking=no -r deploy ubuntu@${{ env.SERVER_IP }}:~/
+      - name: Deploy to Server
+        run: |
+          # Create deployment directory
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "mkdir -p ~/deploy"
+          
+          # Copy Docker Compose file
+          cat > docker-compose.yml << 'EOL'
+version: '3.8'
 
-      - name: Install Server Requirements
-        run: ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./setup.sh"
+services:
+  laravel:
+    image: photomaster-laravel:latest
+    restart: always
+    environment:
+      - DB_HOST=mysql
+      - DB_DATABASE=photomaster
+      - DB_USERNAME=${{ secrets.DB_USERNAME }}
+      - DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+    volumes:
+      - /var/www/photomaster/laravel/storage:/var/www/html/storage
+      - /var/www/photomaster/laravel/bootstrap/cache:/var/www/html/bootstrap/cache
+    depends_on:
+      - mysql
 
-      - name: Configure Nginx
-        run: ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "sudo cp ~/deploy/nginx.conf /etc/nginx/sites-available/photomaster && sudo ln -sf /etc/nginx/sites-available/photomaster /etc/nginx/sites-enabled/ && sudo rm -f /etc/nginx/sites-enabled/default && sudo nginx -t && sudo systemctl restart nginx"
+  react:
+    image: photomaster-react:latest
+    restart: always
+    volumes:
+      - /var/www/photomaster/electron-react/build:/usr/share/nginx/html
+    depends_on:
+      - laravel
 
-      - name: Setup Database
-        run: ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./database.sh '${{ secrets.DB_ROOT_PASSWORD }}' '${{ secrets.DB_USERNAME }}' '${{ secrets.DB_PASSWORD }}'"
+  mysql:
+    image: mysql:8.0
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
+      - MYSQL_DATABASE=photomaster
+      - MYSQL_USER=${{ secrets.DB_USERNAME }}
+      - MYSQL_PASSWORD=${{ secrets.DB_PASSWORD }}
+    volumes:
+      - mysql_data:/var/lib/mysql
 
-      - name: Deploy Application
-        run: ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && ./app.sh '${{ secrets.DB_USERNAME }}' '${{ secrets.DB_PASSWORD }}' 'https://github.com/${{ github.repository }}.git'"
+  nginx:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - /var/www/photomaster/laravel/public:/var/www/html/laravel
+      - /var/www/photomaster/electron-react/build:/var/www/html/react
+    depends_on:
+      - laravel
+      - react
+
+volumes:
+  mysql_data:
+EOL
+
+          # Create Nginx configuration
+          cat > nginx.conf << 'EOL'
+server {
+    listen 80;
+    server_name ${{ env.SERVER_IP }};
+    
+    # Laravel
+    location /api {
+        root /var/www/html/laravel;
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # React
+    location / {
+        root /var/www/html/react;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # PHP-FPM
+    location ~ \.php$ {
+        fastcgi_pass laravel:9000;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+}
+EOL
+
+          # Copy files to server
+          scp -i ~/.ssh/key.pem docker-compose.yml nginx.conf ubuntu@${{ env.SERVER_IP }}:~/deploy/
+
+          # Deploy application
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} "cd ~/deploy && docker-compose down && docker-compose up -d"
 
       - name: Cleanup
         if: always()
