@@ -23,14 +23,11 @@ jobs:
 
       - name: Validate Secrets
         run: |
-          required_secrets=("EC2_PEM_KEY" "DB_ROOT_PASSWORD" "DB_USERNAME" "DB_PASSWORD")
-          for secret in "${required_secrets[@]}"; do
-            if [ -z "${{ secrets[$secret] }}" ]; then
-              echo "::error::Missing required secret: $secret"
-              exit 1
-            fi
-          done
-          echo "✓ All secrets validated"
+          if [ -z "${{ secrets.EC2_PEM_KEY }}" ]; then
+            echo "::error::Missing EC2_PEM_KEY secret"
+            exit 1
+          fi
+          echo "✓ Secrets validation passed"
 
       - name: Configure SSH Connection
         run: |
@@ -41,69 +38,58 @@ jobs:
 
       - name: Verify Server Access
         run: |
-          ssh -i ~/.ssh/key.pem -o ConnectTimeout=15 \
-            ubuntu@${{ env.SERVER_IP }} "docker --version && docker-compose --version"
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
+            "docker --version && docker-compose --version"
 
       - name: Synchronize Application Code
         run: |
-          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} << 'EOSSH'
-            set -eo pipefail
-            
-            # Ensure clean repository state
-            if [ -d "$APP_DIR" ]; then
-              cd "$APP_DIR"
-              git fetch origin
-              git reset --hard origin/main
-              git clean -fd
-            else
-              git clone https://github.com/haidar-farhat/PhotoMaster.git "$APP_DIR"
-            fi
-
-            # Refresh symbolic links
-            ln -sfn "$APP_DIR/deploy" ~/deploy
-            ln -sfn "$APP_DIR/laravel" ~/laravel
-            ln -sfn "$APP_DIR/electron-react" ~/electron-react
-
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
+            "set -eo pipefail; \
+            if [ -d \"${{ env.APP_DIR }}\" ]; then \
+              cd \"${{ env.APP_DIR }}\" && \
+              git fetch origin && \
+              git reset --hard origin/main && \
+              git clean -fd; \
+            else \
+              git clone https://github.com/haidar-farhat/PhotoMaster.git \"${{ env.APP_DIR }\"; \
+            fi; \
+            ln -sfn \"${{ env.APP_DIR }}/deploy\" ~/deploy && \
+            ln -sfn \"${{ env.APP_DIR }}/laravel\" ~/laravel && \
+            ln -sfn \"${{ env.APP_DIR }}/electron-react\" ~/electron-react"
 
       - name: Execute Deployment Scripts
         run: |
-          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} << 'EOF'
-            cd "$DEPLOY_DIR"
-            chmod +x *.sh
-            
-            # Conditional database setup
-            if [ ! -f ~/.db_initialized ]; then
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
+            "set -eo pipefail; \
+            cd \"${{ env.DEPLOY_DIR }}\" && \
+            chmod +x *.sh && \
+            if [ ! -f ~/.db_initialized ]; then \
               ./database.sh \
-                "${{ secrets.DB_ROOT_PASSWORD }}" \
-                "${{ secrets.DB_USERNAME }}" \
-                "${{ secrets.DB_PASSWORD }}"
-              touch ~/.db_initialized
-            fi
-
-            ./app.sh "${{ secrets.DB_USERNAME }}" "${{ secrets.DB_PASSWORD }}"
-EOF
+                \"${{ secrets.DB_ROOT_PASSWORD }}\" \
+                \"${{ secrets.DB_USERNAME }}\" \
+                \"${{ secrets.DB_PASSWORD }}\"; \
+              touch ~/.db_initialized; \
+            fi && \
+            ./app.sh \
+              \"${{ secrets.DB_USERNAME }}\" \
+              \"${{ secrets.DB_PASSWORD }}\""
 
       - name: Deploy Docker Services
         run: |
-          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} << 'EOSSH'
-            set -x
-            cd "$DEPLOY_DIR"
-            
-            # Build fresh images
+          ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
+            "set -eo pipefail; \
+            cd \"${{ env.DEPLOY_DIR }}\" && \
             docker build -t photomaster-laravel:latest \
-              -f ../laravel/Dockerfile --target production ../laravel
+              -f \"../laravel/Dockerfile\" --target production \"../laravel\" && \
             docker build -t photomaster-react:latest \
-              -f ../electron-react/Dockerfile --target production ../electron-react
-
-            # Rotate containers
-            docker-compose down --timeout 30
-            docker-compose up -d --force-recreate
-            docker-compose ps --all
-EOSSH
+              -f \"../electron-react/Dockerfile\" --target production \"../electron-react\" && \
+            docker-compose down --timeout 30 && \
+            docker-compose up -d --force-recreate && \
+            docker-compose ps --all"
 
       - name: Verify Deployment
         run: |
-          echo "✅ Deployment completed successfully at $(date +'%Y-%m-%d %H:%M:%S %Z')"
+          echo "✅ Deployment successful at $(date +'%Y-%m-%d %H:%M:%S %Z')"
           echo "Server: ${{ env.SERVER_IP }}"
           echo "Commit: ${{ github.sha }}"
 
@@ -111,22 +97,17 @@ EOSSH
         if: always()
         run: rm -f ~/.ssh/key.pem
 
-      - name: Failure Handler
+      - name: Failure Notification
         if: failure()
         uses: actions/github-script@v6
         with:
           script: |
-            const message = `
-            Deployment failure detected!
-            - Workflow: ${{ github.workflow }}
-            - Server: ${{ env.SERVER_IP }}
-            - Run ID: ${{ github.run_id }}
-            - Commit: ${{ github.sha }}
-            - Logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            `;
             github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: '🚨 Deployment Failure - ${{ env.SERVER_IP }}',
-              body: message.replace(/  +/g, ' ')
-            });
+              title: '🚨 Deployment Failed',
+              body: `Deployment to ${{ env.SERVER_IP }} failed\n` +
+                     `Workflow: ${{ github.workflow }}\n` +
+                     `Commit: ${{ github.sha }}\n` +
+                     `Logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`
+            })
