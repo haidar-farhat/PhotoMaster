@@ -120,14 +120,13 @@ jobs:
           mkdir -p deploy
           
           # Create nginx.conf file
-          cat > deploy/nginx.conf << 'EOL'
-server {
+          echo "server {
     listen 80;
     server_name 13.39.161.145;
     root /var/www/photomaster/laravel/public;
 
-    add_header X-Frame-Options "SAMEORIGIN";
-    add_header X-Content-Type-Options "nosniff";
+    add_header X-Frame-Options \"SAMEORIGIN\";
+    add_header X-Content-Type-Options \"nosniff\";
 
     index index.php;
     charset utf-8;
@@ -141,17 +140,16 @@ server {
 
     error_page 404 /index.php;
 
-    location ~ \.php$ {
+    location ~ \\.php$ {
         fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
         fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
         include fastcgi_params;
     }
 
-    location ~ /\.(?!well-known).* {
+    location ~ /\\.(?!well-known).* {
         deny all;
     }
-}
-EOL
+}" > deploy/nginx.conf
           
           # Create PictureTest.php
           cat > deploy/PictureTest.php << 'EOL'
