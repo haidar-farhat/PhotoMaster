@@ -31,7 +31,8 @@ FROM base AS build
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci
+# Try npm ci first, fall back to npm install if it fails
+RUN npm ci || (echo "npm ci failed, falling back to npm install..." && npm install)
 
 # Copy application files
 COPY . .
