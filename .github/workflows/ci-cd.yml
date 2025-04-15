@@ -97,14 +97,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to production server
+      - name: Create PEM key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_PEM_KEY }}" > ~/.ssh/ec2.pem
+          chmod 600 ~/.ssh/ec2.pem
+          ssh-keyscan -H ${{ secrets.EC2_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to EC2
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_USERNAME }}
-          key: ${{ secrets.PROD_SSH_KEY }}
+          host: ${{ secrets.EC2_IP }}
+          username: ubuntu
+          key_path: ~/.ssh/ec2.pem
           script: |
+            # Navigate to project directory
             cd /var/www/photomaster
+
+            # Backup current version
+            timestamp=$(date +%Y%m%d_%H%M%S)
+            if [ -d "backup_$timestamp" ]; then
+              rm -rf "backup_$timestamp"
+            fi
+            cp -r . "backup_$timestamp"
+
+            # Pull latest changes
             git fetch origin
             git checkout main
             git pull origin main
@@ -112,19 +129,33 @@ jobs:
             # Laravel deployment
             cd laravel
             composer install --no-dev --optimize-autoloader
+            php artisan down
             php artisan migrate --force
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
+            php artisan up
 
             # React deployment
             cd ../electron-react
             npm ci
             npm run build
 
+            # Set proper permissions
+            sudo chown -R www-data:www-data /var/www/photomaster
+            sudo chmod -R 755 /var/www/photomaster
+
             # Clear caches and restart services
             sudo systemctl restart php8.1-fpm
             sudo systemctl restart nginx
 
+            # Cleanup old backups (keep last 5)
+            cd /var/www/photomaster
+            ls -t | grep backup_ | tail -n +6 | xargs -r rm -rf
+
             # Notify deployment status
             echo "Deployment completed successfully at $(date)"
+
+      - name: Cleanup PEM key
+        if: always()
+        run: rm -f ~/.ssh/ec2.pem
