@@ -64,7 +64,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
             "set -eo pipefail; \
-            cd \"${{ env.DEPLOY_DIR }}\" && \
+            cd \"${{ env.APP_DIR }}/deploy\" && \
             chmod +x *.sh && \
             if [ ! -f ~/.db_initialized ]; then \
               ./database.sh \
@@ -81,7 +81,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/key.pem ubuntu@${{ env.SERVER_IP }} \
             "set -eo pipefail; \
-            cd \"${{ env.DEPLOY_DIR }}\" && \
+            cd \"${{ env.APP_DIR }}/deploy\" && \
             docker build -t photomaster-laravel:latest \
               -f \"../laravel/Dockerfile\" --target production \"../laravel\" && \
             docker build -t photomaster-react:latest \
