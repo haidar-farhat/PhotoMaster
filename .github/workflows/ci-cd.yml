@@ -134,7 +134,7 @@ jobs:
           
           # Configure Nginx
           log "Setting up Nginx"
-          cat > /tmp/nginx-photomaster << EOF
+          cat << "NGINX_CONFIG" > /tmp/nginx-photomaster
 server {
     listen 80;
     server_name 13.39.161.145;
@@ -147,7 +147,7 @@ server {
     charset utf-8;
 
     location / {
-        try_files \$uri \$uri/ /index.php?\$query_string;
+        try_files $uri $uri/ /index.php?$query_string;
     }
 
     location = /favicon.ico { access_log off; log_not_found off; }
@@ -157,7 +157,7 @@ server {
 
     location ~ \.php$ {
         fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
         include fastcgi_params;
     }
 
@@ -165,7 +165,7 @@ server {
         deny all;
     }
 }
-EOF
+NGINX_CONFIG
           sudo mv /tmp/nginx-photomaster /etc/nginx/sites-available/photomaster || handle_error "Failed to move Nginx config"
           sudo ln -sf /etc/nginx/sites-available/photomaster /etc/nginx/sites-enabled/ || handle_error "Failed to enable Nginx site"
           sudo rm -f /etc/nginx/sites-enabled/default
