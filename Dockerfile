@@ -62,7 +62,7 @@ ENTRYPOINT ["/docker-entrypoint.sh"]
 
 # Production stage - importing from laravel and electron-react
 FROM photomaster-laravel:latest AS laravel-prod
-FROM photomaster-react:latest AS react-prod
+FROM photomaster-electron-react:latest AS react-prod
 
 # Final production image
 FROM nginx:alpine AS production
